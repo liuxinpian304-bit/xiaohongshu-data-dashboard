@@ -282,3 +282,22 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
 }
+
+model AdminSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  tokenHash  String   @unique
+  csrfHash   String
+  expiresAt  DateTime @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  id          String   @id @default(uuid()) @db.Uuid
+  fingerprint String
+  attemptedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([fingerprint, attemptedAt])
+}

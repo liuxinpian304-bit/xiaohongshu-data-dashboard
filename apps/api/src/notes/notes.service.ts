@@ -1,0 +1,2 @@
+import { Injectable } from '@nestjs/common'; import { prisma } from '@xhs/database'; import { page } from '../common/pagination.dto';
+@Injectable() export class NotesService { async list(accountId:string|undefined,cursor:string|undefined,limit:number){return page(await prisma.note.findMany({where:{...(accountId?{accountId}:{}),...(cursor?{id:{gt:cursor}}:{})},orderBy:{id:'asc'},take:limit+1}),limit)} }

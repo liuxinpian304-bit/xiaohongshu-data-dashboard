@@ -3,6 +3,8 @@ packages:
   - packages/*
 
 allowBuilds:
+  '@scarf/scarf': false
+  argon2: true
   esbuild: true
   msgpackr-extract: true
   sharp: true

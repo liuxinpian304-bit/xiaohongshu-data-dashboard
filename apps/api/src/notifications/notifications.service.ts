@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { AuditService } from '../common/audit.service';
 import { prisma } from '@xhs/database';
 
 import { parsePushSubscription } from './dto';
@@ -32,7 +33,7 @@ export class PrismaNotificationsStore implements NotificationsStore {
 
 @Injectable()
 export class NotificationsService {
-  constructor(@Inject(NOTIFICATIONS_STORE) private readonly store: NotificationsStore, private readonly endpointPolicy = new PushEndpointPolicy()) {}
+  constructor(@Inject(NOTIFICATIONS_STORE) private readonly store: NotificationsStore, private readonly endpointPolicy = new PushEndpointPolicy(), @Optional() private readonly audit?: AuditService) {}
   async list(accountId?: string) {
     if (accountId && !(await this.store.hasManagedAccount(accountId))) throw new NotFoundException('managed account not found');
     return this.store.list(accountId);
@@ -52,6 +53,8 @@ export class NotificationsService {
     try { await this.endpointPolicy.resolveAndPin(subscription.endpoint); }
     catch (error) { throw new BadRequestException(error instanceof Error ? error.message : 'invalid push destination'); }
     if (!(await this.store.hasManagedAccount(subscription.accountId))) throw new NotFoundException('managed account not found');
-    return await this.store.savePushSubscription({ accountId: subscription.accountId, endpoint: subscription.endpoint, ...subscription.keys });
+    const result = await this.store.savePushSubscription({ accountId: subscription.accountId, endpoint: subscription.endpoint, ...subscription.keys });
+    await this.audit?.record('notification.push_configured', 'Account', subscription.accountId, { endpointHost: new URL(subscription.endpoint).host });
+    return result;
   }
 }

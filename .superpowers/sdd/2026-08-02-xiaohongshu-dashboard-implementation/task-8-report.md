@@ -125,3 +125,27 @@
 - Connector: 1 file, 11 tests passed; database integration: 2 files, 5 tests passed; worker: 12 files, 65 tests passed.
 - API build passed; API, connector, database, and worker typechecks passed.
 - PostgreSQL 18 was healthy; Prisma found 12 migrations and no pending migration; `git diff --check` passed.
+
+## Contract review fix round 4
+
+### RED evidence
+
+- Authorization and reauthorization returned bare Prisma accounts without the `capabilities` field required by `AccountDto`.
+- Push-subscription upsert responses exposed stored `p256dh` and `auth` secrets even though the public response schema omitted them.
+- OpenAPI contract checks lacked assertions for primitive types, enums, formats, nullability, write-response bodies, and secret absence.
+
+### GREEN implementation
+
+- Both account credential mutations now return the same explicit public account projection as account listing, including capabilities; HTTP tests compare both real response bodies to `AccountDto`.
+- Push-subscription storage selects only `id`, `accountId`, and `endpoint`, and the service applies a second explicit public projection. Unit, Prisma integration, and HTTP tests assert key material is absent.
+- Added precise enums for sync job status/stage/verification, metric availability, report period/status, dashboard period/availability, and notification type.
+- Added a structured `MissingReportFieldDto`; report missing fields are arrays of that model, missing dates are date-formatted strings, limits are OpenAPI integers, dashboard periods carry the accepted enum, and page cursors are nullable UUIDs.
+- Notification `eventId` remains an unformatted string because real worker events also use structured identifiers such as `sync:completed:<jobId>`; only database UUID identifiers use UUID format.
+- Registered the push endpoint policy explicitly in Nest dependency injection, fixing the real HTTP subscription path while preserving endpoint allowlisting and DNS pinning.
+
+### Final verification
+
+- API unit/integration: 10 files, 41 tests passed.
+- API e2e: 2 files, 28 tests passed against PostgreSQL.
+- Connector: 1 file, 11 tests passed; database integration: 2 files, 5 tests passed; worker: 12 files, 65 tests passed.
+- API build passed; API, connector, database, and worker typechecks passed.

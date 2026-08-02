@@ -13,7 +13,7 @@ export interface NotificationsStore {
   list(accountId?: string, cursor?: string, limit?: number): Promise<Array<{ id: string }>>;
   markRead(id: string, readAt: Date): Promise<unknown>;
   notificationAccountId(id: string): Promise<string | null>;
-  savePushSubscription(subscription: { accountId: string; endpoint: string; p256dh: string; auth: string }, beforeCommit?: (tx?: TransactionClient) => Promise<unknown>): Promise<unknown>;
+  savePushSubscription(subscription: { accountId: string; endpoint: string; p256dh: string; auth: string }, beforeCommit?: (tx?: TransactionClient) => Promise<unknown>): Promise<{ id: string; accountId: string; endpoint: string; p256dh?: string; auth?: string }>;
   hasManagedAccount(accountId: string): Promise<boolean>;
 }
 
@@ -30,6 +30,7 @@ export class PrismaNotificationsStore implements NotificationsStore {
       return tx.pushSubscription.upsert({
         where: { accountId_endpoint: { accountId: subscription.accountId, endpoint: subscription.endpoint } },
         create: subscription, update: { p256dh: subscription.p256dh, auth: subscription.auth },
+        select: { id: true, accountId: true, endpoint: true },
       });
     });
   }
@@ -38,7 +39,7 @@ export class PrismaNotificationsStore implements NotificationsStore {
 
 @Injectable()
 export class NotificationsService {
-  constructor(@Inject(NOTIFICATIONS_STORE) private readonly store: NotificationsStore, private readonly endpointPolicy: PushEndpointPolicy = new PushEndpointPolicy(), private readonly audit: AuditService) {}
+  constructor(@Inject(NOTIFICATIONS_STORE) private readonly store: NotificationsStore, @Inject(PushEndpointPolicy) private readonly endpointPolicy: PushEndpointPolicy, @Inject(AuditService) private readonly audit: AuditService) {}
   async list(accountId?: string, cursor?: string, limit = 50) {
     if (accountId && !(await this.store.hasManagedAccount(accountId))) throw new NotFoundException('managed account not found');
     return page(await this.store.list(accountId, cursor, limit), limit);
@@ -58,9 +59,10 @@ export class NotificationsService {
     try { await this.endpointPolicy.resolveAndPin(subscription.endpoint); }
     catch (error) { throw new BadRequestException(error instanceof Error ? error.message : 'invalid push destination'); }
     if (!(await this.store.hasManagedAccount(subscription.accountId))) throw new NotFoundException('managed account not found');
-    return this.store.savePushSubscription(
+    const saved = await this.store.savePushSubscription(
       { accountId: subscription.accountId, endpoint: subscription.endpoint, ...subscription.keys },
       (tx) => this.audit.record('notification.push_configured', 'Account', subscription.accountId, { endpointHost: new URL(subscription.endpoint).host }, tx),
     );
+    return { id: saved.id, accountId: saved.accountId, endpoint: saved.endpoint };
   }
 }

@@ -6,6 +6,13 @@ const registry = (entries: Array<[string, unknown]>) => ({ resolve: (type: strin
 
 describe('account credential lifecycle', () => {
   beforeEach(async () => { await prisma.auditLog.deleteMany(); await prisma.account.deleteMany(); process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64'); });
+  it('returns the complete public account projection from authorize and reauthorize', async () => {
+    const service = new AccountsService(new AuditService());
+    const created = await service.authorize({ connectorType: `projection-${crypto.randomUUID()}`, platformId: crypto.randomUUID(), displayName: 'Projection', secret: 'first', kind: 'oauth' });
+    expect(created).toMatchObject({ displayName: 'Projection', capabilities: [] });
+    const updated = await service.reauthorize(created.id, 'second', 'oauth');
+    expect(updated).toMatchObject({ id: created.id, capabilities: [] });
+  });
   it('revokes connector authorization before atomically deleting local credentials', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } } } });
     const connector = { getCapabilities: vi.fn(async () => ({ revokeAuthorization: true })), revokeAuthorization: vi.fn(async () => ({ revoked: true as const })) };

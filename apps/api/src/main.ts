@@ -10,7 +10,7 @@ import { AppModule } from './app.module';
 
 import { SafeErrorFilter } from './common/error.filter';
 import { validateAdminPasswordHash } from './auth/password-policy';
-import { AccountDeletionDto, AccountDto, AccountStateDto, AuthCsrfResponseDto, AuthLoginResponseDto, AuthorizeAccountDto, BackgroundExportDto, CommentDto, ConnectorCapabilityDto, CreateJobDto, DashboardResponseDto, DeleteAccountDto, ErrorDto, LoginDto, NoteDto, NotificationDto, OkResponseDto, PageInfoDto, PushSubscriptionRequestDto, PushSubscriptionResponseDto, ReportDto, ReportMetricDto, ReauthorizeAccountDto, SyncJobDto } from './common/api.dto';
+import { AccountDeletionDto, AccountDto, AccountStateDto, AuthCsrfResponseDto, AuthLoginResponseDto, AuthorizeAccountDto, BackgroundExportDto, CommentDto, ConnectorCapabilityDto, CreateJobDto, DashboardResponseDto, DeleteAccountDto, ErrorDto, LoginDto, MissingReportFieldDto, NoteDto, NotificationDto, OkResponseDto, PageInfoDto, PushSubscriptionRequestDto, PushSubscriptionResponseDto, ReportDto, ReportMetricDto, ReauthorizeAccountDto, SyncJobDto } from './common/api.dto';
 import { trustProxySetting } from './auth/proxy-config';
 
 export function configureApp(app: INestApplication) {
@@ -20,7 +20,7 @@ export function configureApp(app: INestApplication) {
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true }));
   app.useGlobalFilters(new SafeErrorFilter());
   const config = new DocumentBuilder().setTitle('Xiaohongshu Dashboard API').setVersion('1.0').addCookieAuth('admin_session').build();
-  const models = [LoginDto, AuthorizeAccountDto, ReauthorizeAccountDto, DeleteAccountDto, CreateJobDto, PushSubscriptionRequestDto, ErrorDto, PageInfoDto, ConnectorCapabilityDto, AccountDto, SyncJobDto, NoteDto, CommentDto, ReportMetricDto, ReportDto, NotificationDto, DashboardResponseDto, AuthCsrfResponseDto, AuthLoginResponseDto, OkResponseDto, AccountStateDto, AccountDeletionDto, PushSubscriptionResponseDto, BackgroundExportDto];
+  const models = [LoginDto, AuthorizeAccountDto, ReauthorizeAccountDto, DeleteAccountDto, CreateJobDto, PushSubscriptionRequestDto, ErrorDto, PageInfoDto, ConnectorCapabilityDto, AccountDto, SyncJobDto, NoteDto, CommentDto, MissingReportFieldDto, ReportMetricDto, ReportDto, NotificationDto, DashboardResponseDto, AuthCsrfResponseDto, AuthLoginResponseDto, OkResponseDto, AccountStateDto, AccountDeletionDto, PushSubscriptionResponseDto, BackgroundExportDto];
   const document = SwaggerModule.createDocument(app, config, { operationIdFactory: (controller, method) => `${controller}_${method}`, extraModels: models });
   for (const [path, item] of Object.entries(document.paths)) for (const [method, operation] of Object.entries(item ?? {})) {
     if (!operation || !['get', 'post', 'patch', 'delete'].includes(method)) continue;
@@ -31,13 +31,13 @@ export function configureApp(app: INestApplication) {
     operation.responses['403'] = { description: 'CSRF or origin rejected', content: { 'application/json': { schema: { $ref: getSchemaPath(ErrorDto) } } } };
     if (['post', 'patch', 'delete'].includes(method)) operation.parameters = [...(operation.parameters ?? []), { name: 'X-CSRF-Token', in: 'header', required: true, schema: { type: 'string' } }];
   }
-  const addParameters = (path: string, names: Array<[string, string, boolean, string?]>) => { const item = document.paths[path]; if (!item) return; for (const operation of Object.values(item)) if (operation && 'responses' in operation) operation.parameters = [...(operation.parameters ?? []), ...names.map(([name, location, required, format]) => ({ name, in: location, required, schema: { type: 'string', ...(format ? { format } : {}) } }))]; };
+  const addParameters = (path: string, names: Array<[string, string, boolean, string?, string[]?]>) => { const item = document.paths[path]; if (!item) return; for (const operation of Object.values(item)) if (operation && 'responses' in operation) operation.parameters = [...(operation.parameters ?? []), ...names.map(([name, location, required, format, values]) => ({ name, in: location, required, schema: { type: name === 'limit' ? 'integer' : 'string', ...(format ? { format } : {}), ...(values ? { enum: values } : {}) } }))]; };
   for (const path of Object.keys(document.paths).filter((value) => value.includes('{id}'))) addParameters(path, [['id', 'path', true, 'uuid']]);
   for (const path of ['/accounts', '/jobs', '/notes', '/comments', '/reports', '/notifications']) addParameters(path, [['cursor', 'query', false, 'uuid'], ['limit', 'query', false]]);
   for (const path of ['/notes', '/comments', '/comments/export.csv', '/reports']) addParameters(path, [['accountId', 'query', false, 'uuid']]);
   for (const path of ['/comments', '/comments/export.csv']) addParameters(path, [['noteId', 'query', false, 'uuid'], ['from', 'query', false, 'date-time'], ['to', 'query', false, 'date-time']]);
   for (const path of ['/comments', '/comments/export.csv']) { const operation = document.paths[path]?.get; if (operation) operation.parameters = [...(operation.parameters ?? []), { name: 'accountIds', in: 'query', required: false, schema: { type: 'array', items: { type: 'string', format: 'uuid' } } }]; }
-  addParameters('/dashboard', [['period', 'query', false]]);
+  addParameters('/dashboard', [['period', 'query', false, undefined, ['daily', 'weekly', 'monthly']]]);
   const body = (schema: string) => ({ required: true, content: { 'application/json': { schema: { $ref: schema } } } });
   const success = (schema: string, description = 'Success') => ({ description, content: { 'application/json': { schema: { $ref: schema } } } });
   const page = (item: string) => ({ description: 'Cursor page', content: { 'application/json': { schema: { type: 'object', required: ['items', 'pageInfo'], properties: { items: { type: 'array', items: { $ref: item } }, pageInfo: { $ref: getSchemaPath(PageInfoDto) } } } } } });

@@ -22,7 +22,7 @@ export class AccountsService {
       if (old) await tx.credential.delete({ where: { id: old.id } });
       await tx.credential.update({ where: { id: credentialId }, data: { kind: input.kind } });
       await tx.auditLog.create({ data: { actor: 'admin', action: 'account.authorized', entityType: 'Account', entityId: account.id, details: { connectorType: input.connectorType } } });
-      return account;
+      return tx.account.findUniqueOrThrow({ where: { id: account.id }, include: { capabilities: true } });
     });
   }
   async deactivate(id: string) {
@@ -36,14 +36,14 @@ export class AccountsService {
     if (!account) throw new NotFoundException('managed account not found');
     const credentialId = randomUUID();
     const encrypted = new CredentialCipher().encrypt(secret, id, credentialId);
-    await prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx) => {
       const old = await tx.credential.findUnique({ where: { accountId_kind: { accountId: id, kind } } });
       await tx.credential.create({ data: { id: credentialId, accountId: id, kind: `${kind}:pending:${credentialId}`, secret: encrypted } });
       if (old) await tx.credential.delete({ where: { id: old.id } });
       await tx.credential.update({ where: { id: credentialId }, data: { kind } });
       await tx.auditLog.create({ data: { actor: 'admin', action: 'account.reauthorized', entityType: 'Account', entityId: id, details: { kind } } });
+      return tx.account.findUniqueOrThrow({ where: { id }, include: { capabilities: true } });
     });
-    return account;
   }
   async remove(id: string, retainData: boolean) {
     const account = await prisma.account.findUnique({ where: { id }, include: { capabilities: true } });

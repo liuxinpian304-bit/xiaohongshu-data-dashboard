@@ -7,12 +7,16 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/main';
 import { prisma } from '@xhs/database';
+import { NotificationsService } from '../src/notifications/notifications.service';
+import { PushEndpointPolicy } from '@xhs/domain';
 
 describe('dashboard API', () => {
   let app: INestApplication;
   beforeAll(async () => {
     process.env.ADMIN_PASSWORD_HASH = await argon2.hash('dashboard password', { type: argon2.argon2id });
+    process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    (module.get(NotificationsService) as unknown as { endpointPolicy: PushEndpointPolicy }).endpointPolicy = new PushEndpointPolicy(['push.example.test'], async () => ['8.8.8.8']);
     app = module.createNestApplication();
     configureApp(app);
     await app.init();
@@ -53,6 +57,40 @@ describe('dashboard API', () => {
       expect(response.body.paths[path].get.responses['200'].content['application/json'].schema.properties.items.items.$ref).toBe(`#/components/schemas/${model}`);
     }
     expect(response.body.paths['/comments/export.csv'].get.responses['202'].content['application/json'].schema.$ref).toBe('#/components/schemas/BackgroundExportDto');
+  });
+
+  it('uses precise OpenAPI primitives, enums, formats, and nullable contracts', async () => {
+    const spec = (await request(app.getHttpServer()).get('/docs/openapi.json').expect(200)).body; const schemas = spec.components.schemas;
+    expect(schemas.PageInfoDto.properties.nextCursor).toMatchObject({ type: 'string', format: 'uuid', nullable: true });
+    expect(schemas.SyncJobDto.properties.status.enum).toEqual(['pending', 'running', 'succeeded', 'failed']);
+    expect(schemas.SyncJobDto.properties.currentStage.enum).toContain('export_comments');
+    expect(schemas.SyncJobDto.properties.startedAt).toMatchObject({ format: 'date-time', nullable: true });
+    expect(schemas.ReportDto.properties.reportType.enum).toEqual(['daily', 'weekly', 'monthly']);
+    expect(schemas.ReportDto.properties.status.enum).toEqual(['complete', 'awaiting_data']);
+    expect(schemas.ReportDto.properties.missingFields).toMatchObject({ type: 'array', items: { $ref: '#/components/schemas/MissingReportFieldDto' } });
+    expect(schemas.ReportDto.properties.missingDates.items).toMatchObject({ type: 'string', format: 'date' });
+    expect(schemas.ReportMetricDto.properties.availability.enum).toEqual(['zero', 'not_synced', 'awaiting_authorization', 'not_provided', 'available']);
+    expect(schemas.DashboardResponseDto.properties.period.enum).toEqual(['daily', 'weekly', 'monthly']);
+    expect(schemas.NotificationDto.properties.type.enum).toContain('report_rebuilt');
+    expect(schemas.NotificationDto.properties.eventId).not.toHaveProperty('format');
+    for (const path of ['/accounts', '/jobs', '/notes', '/comments', '/reports', '/notifications']) {
+      const limit = spec.paths[path].get.parameters.find((parameter: { name: string }) => parameter.name === 'limit'); expect(limit.schema.type).toBe('integer');
+    }
+    const period = spec.paths['/dashboard'].get.parameters.find((parameter: { name: string }) => parameter.name === 'period'); expect(period.schema.enum).toEqual(['daily', 'weekly', 'monthly']);
+  });
+
+  it('returns mutation bodies matching public schemas without credential material', async () => {
+    const agent = request.agent(app.getHttpServer()); const pre = await agent.get('/auth/csrf').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').expect(200);
+    const login = await agent.post('/auth/login').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', pre.body.csrfToken).send({ password: 'dashboard password' }).expect(201);
+    const mutation = (requestBuilder: request.Test) => requestBuilder.set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', login.body.csrfToken);
+    const authorized = await mutation(agent.post('/accounts/authorize')).send({ connectorType: `mutation-${crypto.randomUUID()}`, platformId: crypto.randomUUID(), displayName: 'Mutation', secret: 'credential-one', kind: 'oauth' }).expect(201);
+    const reauthorized = await mutation(agent.post(`/accounts/${authorized.body.id}/reauthorize`)).send({ secret: 'credential-two', kind: 'oauth' }).expect(201);
+    const pushed = await mutation(agent.post('/notifications/push-subscriptions')).send({ accountId: authorized.body.id, endpoint: 'https://push.example.test/sub', keys: { p256dh: 'public-key', auth: 'auth-secret' } }).expect(201);
+    const spec = (await request(app.getHttpServer()).get('/docs/openapi.json')).body;
+    for (const body of [authorized.body, reauthorized.body]) { expect(body.capabilities).toEqual([]); expect(Object.keys(body).sort()).toEqual(Object.keys(spec.components.schemas.AccountDto.properties).sort()); }
+    expect(pushed.body).toEqual(expect.objectContaining({ accountId: authorized.body.id, endpoint: 'https://push.example.test/sub' }));
+    expect(pushed.body).not.toHaveProperty('p256dh'); expect(pushed.body).not.toHaveProperty('auth');
+    expect(Object.keys(pushed.body).sort()).toEqual(Object.keys(spec.components.schemas.PushSubscriptionResponseDto.properties).sort());
   });
 
   it('documents every field emitted by representative resource responses', async () => {

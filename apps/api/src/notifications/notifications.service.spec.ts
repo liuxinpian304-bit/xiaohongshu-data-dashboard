@@ -12,7 +12,7 @@ function memoryStore(): NotificationsStore & { readAt: Date | null; subscription
     list: async () => [{ id: '00000000-0000-4000-8000-000000000001', readAt: null }],
     markRead: async function (id, readAt) { this.readAt = readAt; return { id, readAt }; },
     notificationAccountId: async () => 'account-1',
-    savePushSubscription: async function (subscription, beforeCommit) { await beforeCommit?.(); this.subscriptions.push(subscription); return { id: 'subscription-1' }; },
+    savePushSubscription: async function (subscription, beforeCommit) { await beforeCommit?.(); this.subscriptions.push(subscription); return { id: 'subscription-1', ...subscription }; },
     hasManagedAccount: async () => true,
   };
 }
@@ -40,12 +40,13 @@ describe('NotificationsService', () => {
 
   it('stores a valid push subscription in normalized form', async () => {
     const store = memoryStore();
-    await new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver), audit).subscribe({
+    const response = await new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver), audit).subscribe({
       accountId: 'account-1', endpoint: 'https://push.example/subscription', keys: { p256dh: 'public-key', auth: 'auth-secret' },
     });
     expect(store.subscriptions).toEqual([{
       accountId: 'account-1', endpoint: 'https://push.example/subscription', p256dh: 'public-key', auth: 'auth-secret',
     }]);
+    expect(response).toEqual({ id: 'subscription-1', accountId: 'account-1', endpoint: 'https://push.example/subscription' });
   });
 
   it('rejects a malformed HTTPS endpoint', async () => {

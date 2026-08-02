@@ -21,7 +21,9 @@ describe('Prisma notifications API store', () => {
 
   it('stores a subscription only for an existing managed account', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'api-subscription', platformId: crypto.randomUUID() } });
-    await service.subscribe({ accountId: account.id, endpoint: 'https://push.example.test/sub', keys: { p256dh: 'key', auth: 'auth' } });
+    const response = await service.subscribe({ accountId: account.id, endpoint: 'https://push.example.test/sub', keys: { p256dh: 'key', auth: 'auth' } });
+    expect(response).toEqual(expect.objectContaining({ accountId: account.id, endpoint: 'https://push.example.test/sub' }));
+    expect(response).not.toHaveProperty('p256dh'); expect(response).not.toHaveProperty('auth');
     expect(await prisma.pushSubscription.count({ where: { accountId: account.id } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { entityId: account.id, action: 'notification.push_configured' } })).toBe(1);
     await expect(service.subscribe({ accountId: crypto.randomUUID(), endpoint: 'https://push.example.test/sub', keys: { p256dh: 'key', auth: 'auth' } })).rejects.toBeInstanceOf(NotFoundException);

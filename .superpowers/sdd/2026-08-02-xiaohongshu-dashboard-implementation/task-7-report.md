@@ -83,3 +83,48 @@
 - `packages/domain/src/push-endpoint-policy.ts` 及测试、domain exports/dependencies。
 - API AdminGuard 测试与共享 policy 接入；Worker WebPushGateway pinned agent 接入。
 - `SyncRepository.saveCommentsPage` 与 `sync.repository.comment.integration.spec.ts`。
+
+## Fix round 3：Pinned lookup 契约
+
+### RED 证据
+
+命令：
+
+```bash
+pnpm --filter @xhs/domain exec vitest run src/push-endpoint-policy.spec.ts
+```
+
+失败输出：
+
+```text
+src/push-endpoint-policy.spec.ts (10 tests | 1 failed)
+implements Node lookup all and family selection contracts from one pinned resolution
+expected '8.8.8.8' to deeply equal [{ address: '8.8.8.8', family: 4 }, { address: '2001:4860:4860::8888', family: 6 }]
+Test Files 1 failed (1)
+Tests 1 failed | 9 passed (10)
+```
+
+### GREEN 证据
+
+命令：
+
+```bash
+pnpm --filter @xhs/domain exec vitest run src/push-endpoint-policy.spec.ts
+pnpm --filter @xhs/domain typecheck
+```
+
+通过输出：
+
+```text
+src/push-endpoint-policy.spec.ts (12 tests) passed
+Test Files 1 passed (1)
+Tests 12 passed (12)
+tsc --noEmit
+```
+
+### 修复内容
+
+- `options.all === true` 返回完整 `LookupAddress[]`；普通 lookup 返回单个 `address, family`。
+- family 0 选择首个已验证地址，family 4/6 只选择匹配地址；不存在匹配 family 时返回错误，不跨族回退。
+- 所有 lookup 仅消费首次预解析得到的 pinned public 地址列表，不触发第二次 DNS。
+- 新增真实 `https.request` auto-family 路径测试：不再出现 `ERR_INVALID_IP_ADDRESS`，endpoint hostname 与 TLS `servername` 保持原始 `push.example.test`。

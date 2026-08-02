@@ -30,8 +30,15 @@ export class PushEndpointPolicy {
     const addresses = await this.resolve(url.hostname);
     if (!addresses.length || addresses.some((address) => !isPublicAddress(address))) throw new Error('push endpoint must resolve only to public addresses');
     const address = addresses[0]!;
-    const family = isIP(address);
-    const lookup: LookupFunction = (_hostname, _options, callback) => callback(null, address, family);
+    const pinned = addresses.map((candidate) => ({ address: candidate, family: isIP(candidate) as 4 | 6 }));
+    const lookup = ((_hostname, options, callback) => {
+      const request = typeof options === 'number' ? { family: options } : options;
+      if (request?.all) { callback(null, pinned); return; }
+      const requestedFamily = request?.family ?? 0;
+      const selected = requestedFamily === 0 ? pinned[0] : pinned.find((candidate) => candidate.family === requestedFamily);
+      if (!selected) { (callback as (error: Error) => void)(new Error(`pinned push endpoint has no address for family ${requestedFamily}`)); return; }
+      callback(null, selected.address, selected.family);
+    }) as LookupFunction;
     return { url, address, agent: new Agent({ keepAlive: false, maxCachedSessions: 0, lookup }) };
   }
 }

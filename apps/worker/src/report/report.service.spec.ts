@@ -1,0 +1,74 @@
+import { describe, expect, it } from 'vitest';
+
+import { ReportService, type ReportStore } from './report.service';
+
+function storeWithSnapshots(snapshotDates: string[]): ReportStore {
+  const versions: Array<{ version: number; status: string }> = [];
+  return {
+    listAccountIds: async () => ['account-1'],
+    loadCumulativeMetrics: async () => snapshotDates.map((capturedAt, index) => ({
+      metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date(capturedAt), value: 100 + index * 25,
+    })),
+    createVersion: async (input) => {
+      const version = versions.length + 1;
+      versions.push({ version, status: input.status });
+      return { accountId: input.accountId, version, status: input.status };
+    },
+  };
+}
+
+describe('ReportService', () => {
+  it('marks a daily report awaiting data when its required day has no snapshot', async () => {
+    const service = new ReportService(storeWithSnapshots([]));
+
+    const report = await service.generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
+
+    expect(report.status).toBe('awaiting_data');
+    expect(report.missingDates).toEqual(['2026-08-01']);
+    expect(report.reports[0]?.version).toBe(1);
+  });
+
+  it('creates a new complete version after missing snapshots are backfilled', async () => {
+    const snapshots: string[] = [];
+    const store = storeWithSnapshots(snapshots);
+    const service = new ReportService(store);
+    const now = new Date('2026-08-02T08:00:00+08:00');
+    await service.generateReport('daily', now);
+    snapshots.push('2026-08-01T00:15:00+08:00', '2026-08-01T23:45:00+08:00');
+
+    const rebuilt = await service.generateReport('daily', now);
+
+    expect(rebuilt.status).toBe('complete');
+    expect(rebuilt.reports[0]?.version).toBe(2);
+  });
+
+  it('keeps a daily report awaiting data when only one cumulative snapshot exists', async () => {
+    const service = new ReportService(storeWithSnapshots(['2026-08-01T12:00:00+08:00']));
+
+    const report = await service.generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
+
+    expect(report.status).toBe('awaiting_data');
+    expect(report.missingDates).toEqual(['2026-08-01']);
+  });
+
+  it('sums each note first-to-last delta without mixing cumulative totals between notes', async () => {
+    let savedMetrics: Array<{ metricDefinitionId: string; value: number }> = [];
+    const store: ReportStore = {
+      listAccountIds: async () => ['account-1'],
+      loadCumulativeMetrics: async () => [
+        { metricDefinitionId: 'views', noteId: 'note-a', capturedAt: new Date('2026-08-01T00:15:00+08:00'), value: 100 },
+        { metricDefinitionId: 'views', noteId: 'note-b', capturedAt: new Date('2026-08-01T00:20:00+08:00'), value: 1_000 },
+        { metricDefinitionId: 'views', noteId: 'note-a', capturedAt: new Date('2026-08-01T23:40:00+08:00'), value: 130 },
+        { metricDefinitionId: 'views', noteId: 'note-b', capturedAt: new Date('2026-08-01T23:45:00+08:00'), value: 1_050 },
+      ],
+      createVersion: async (input) => {
+        savedMetrics = input.metrics;
+        return { accountId: input.accountId, version: 1, status: input.status };
+      },
+    };
+
+    await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
+
+    expect(savedMetrics).toEqual([{ metricDefinitionId: 'views', value: 80 }]);
+  });
+});

@@ -191,11 +191,15 @@ model Report {
   reportType  String
   periodStart DateTime       @db.Timestamptz(3)
   periodEnd   DateTime       @db.Timestamptz(3)
+  version      Int            @default(1)
+  status       String         @default("complete")
+  missingDates String[]       @default([])
   generatedAt DateTime       @default(now()) @db.Timestamptz(3)
   account     Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
   metrics     ReportMetric[]
 
-  @@unique([accountId, reportType, periodStart, periodEnd])
+  @@unique([accountId, reportType, periodStart, periodEnd, version])
+  @@index([accountId, reportType, periodStart, periodEnd])
 }
 
 model ReportMetric {

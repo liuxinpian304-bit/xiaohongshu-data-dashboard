@@ -17,6 +17,7 @@
   "dependencies": {
     "@xhs/connector": "workspace:*",
     "@xhs/database": "workspace:*",
+    "@xhs/domain": "workspace:*",
     "bullmq": "^6.0.5",
     "ioredis": "^6.0.0"
   }

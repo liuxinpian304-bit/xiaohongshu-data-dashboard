@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/web-push": "^3.6.4",
     "tsx": "^4.20.3",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
@@ -19,6 +20,7 @@
     "@xhs/database": "workspace:*",
     "@xhs/domain": "workspace:*",
     "bullmq": "^6.0.5",
-    "ioredis": "^6.0.0"
+    "ioredis": "^6.0.0",
+    "web-push": "^3.6.7"
   }
 }

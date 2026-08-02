@@ -37,6 +37,7 @@ model Account {
   notifications           Notification[]
   commentSyncCompleteness CommentSyncCompleteness[]
   backfillEvents          BackfillEvent[]
+  pushSubscriptions       PushSubscription[]
 
   @@unique([connectorType, platformId])
 }
@@ -242,15 +243,31 @@ model BackfillEvent {
 
 model Notification {
   id        String    @id @default(uuid()) @db.Uuid
+  eventId   String    @unique
   accountId String    @db.Uuid
-  channel   String
-  status    String
-  payload   Json
-  sentAt    DateTime? @db.Timestamptz(3)
+  type      String
+  title     String
+  body      String
+  link      String
+  readAt    DateTime? @db.Timestamptz(3)
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId, createdAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid()) @db.Uuid
+  accountId String   @db.Uuid
+  endpoint  String
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, endpoint])
+  @@index([accountId])
 }
 
 model AuditLog {

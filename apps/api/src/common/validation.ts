@@ -20,3 +20,9 @@ export function booleanField(input: Record<string, unknown>, key: string, fallba
   if (typeof value !== 'boolean') throw new BadRequestException(`invalid ${key}`);
   return value;
 }
+export function strictDate(value: string, key: string) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) throw new BadRequestException(`invalid ${key}`);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new BadRequestException(`invalid ${key}`);
+  return date;
+}

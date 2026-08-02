@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { AuthGuard } from '../auth/auth.guard';
 
 import { NotificationsService } from './notifications.service';
+import type { PushSubscriptionDto } from './dto';
 
 @Controller('notifications')
 @UseGuards(AuthGuard)
@@ -15,5 +16,5 @@ export class NotificationsController {
   markRead(@Param('id') id: string) { return this.notifications.markRead(id); }
 
   @Post('push-subscriptions')
-  subscribe(@Body() body: unknown) { return this.notifications.subscribe(body); }
+  subscribe(@Body() body: PushSubscriptionDto) { return this.notifications.subscribe(body); }
 }

@@ -1,2 +1,2 @@
-import { Module } from '@nestjs/common'; import { AccountsController } from './accounts.controller'; import { AccountsService } from './accounts.service'; import { AuditService } from '../common/audit.service';
-@Module({ controllers: [AccountsController], providers: [AccountsService, AuditService] }) export class AccountsModule {}
+import { Module } from '@nestjs/common'; import { AccountsController } from './accounts.controller'; import { ACCOUNT_CONNECTOR, AccountsService } from './accounts.service'; import { AuditService } from '../common/audit.service'; import { MockXhsConnector } from '@xhs/connector';
+@Module({ controllers: [AccountsController], providers: [AccountsService, AuditService, { provide: ACCOUNT_CONNECTOR, useFactory: () => new MockXhsConnector() }] }) export class AccountsModule {}

@@ -26,6 +26,7 @@ export class MockXhsConnector implements XhsConnector {
       noteMetrics: true,
       comments: true,
       replies: true,
+      revokeAuthorization: true,
     };
   }
 
@@ -70,6 +71,10 @@ export class MockXhsConnector implements XhsConnector {
       throw new Error('Refresh token is required');
     }
     return credential();
+  }
+  async revokeAuthorization(input: { accountId: string }): Promise<{ revoked: true }> {
+    if (!input.accountId) throw new Error('Account id is required');
+    return { revoked: true };
   }
 }
 

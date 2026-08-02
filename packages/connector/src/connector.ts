@@ -21,4 +21,5 @@ export interface XhsConnector {
   listComments(input: ListCommentsInput): Promise<Page<Comment>>;
   listReplies(input: ListRepliesInput): Promise<Page<Reply>>;
   refreshCredential(input: { refreshToken: string }): Promise<Credential>;
+  revokeAuthorization?(input: { accountId: string }): Promise<{ revoked: true }>;
 }

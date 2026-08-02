@@ -13,6 +13,7 @@ export interface ConnectorCapabilities {
   noteMetrics: boolean;
   comments: boolean;
   replies: boolean;
+  revokeAuthorization?: boolean;
 }
 
 export interface AuthorizationRequest {

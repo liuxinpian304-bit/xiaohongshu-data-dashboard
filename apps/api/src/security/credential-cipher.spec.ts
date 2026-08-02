@@ -13,4 +13,9 @@ describe('CredentialCipher', () => {
     const cipher = new CredentialCipher(Buffer.alloc(32, 7).toString('base64'));
     expect(cipher.encrypt('secret', 'a', 'c')).not.toBe(cipher.encrypt('secret', 'a', 'c'));
   });
+
+  it.each(['v2.a.b.c', 'v1.a.b', 'v1.a.b.c.extra', 'v1...c', 'v1.YQ.YQ.YQ'])('rejects malformed serialized payload %s deterministically', (payload) => {
+    const cipher = new CredentialCipher(Buffer.alloc(32, 7).toString('base64'));
+    expect(() => cipher.decrypt(payload, 'a', 'c')).toThrow('invalid encrypted credential');
+  });
 });

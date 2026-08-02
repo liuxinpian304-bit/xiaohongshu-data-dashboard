@@ -4,10 +4,11 @@ import { NotFoundException } from '@nestjs/common';
 
 import { NotificationsService, PrismaNotificationsStore } from './notifications.service';
 import { PushEndpointPolicy } from '@xhs/domain';
+import { AuditService } from '../common/audit.service';
 
 describe('Prisma notifications API store', () => {
-  const service = new NotificationsService(new PrismaNotificationsStore(), new PushEndpointPolicy(['push.example.test'], async () => ['8.8.8.8']));
-  beforeEach(async () => { await prisma.pushSubscription.deleteMany(); await prisma.notification.deleteMany(); await prisma.account.deleteMany(); });
+  const service = new NotificationsService(new PrismaNotificationsStore(), new PushEndpointPolicy(['push.example.test'], async () => ['8.8.8.8']), new AuditService());
+  beforeEach(async () => { await prisma.pushSubscription.deleteMany(); await prisma.notification.deleteMany(); await prisma.auditLog.deleteMany(); await prisma.account.deleteMany(); });
   afterAll(async () => prisma.$disconnect());
 
   it('lists all managed-account notifications and persists read state', async () => {
@@ -22,6 +23,7 @@ describe('Prisma notifications API store', () => {
     const account = await prisma.account.create({ data: { connectorType: 'api-subscription', platformId: crypto.randomUUID() } });
     await service.subscribe({ accountId: account.id, endpoint: 'https://push.example.test/sub', keys: { p256dh: 'key', auth: 'auth' } });
     expect(await prisma.pushSubscription.count({ where: { accountId: account.id } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { entityId: account.id, action: 'notification.push_configured' } })).toBe(1);
     await expect(service.subscribe({ accountId: crypto.randomUUID(), endpoint: 'https://push.example.test/sub', keys: { p256dh: 'key', auth: 'auth' } })).rejects.toBeInstanceOf(NotFoundException);
   });
 });

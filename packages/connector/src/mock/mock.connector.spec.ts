@@ -70,10 +70,11 @@ describe('MockXhsConnector', () => {
     const credential = await connector.completeAuthorization({ code: 'code', state: request.state });
     const refreshed = await connector.refreshCredential({ refreshToken: credential.refreshToken });
 
-    expect(capabilities).toMatchObject({ source: 'mock', notes: true, comments: true });
+    expect(capabilities).toMatchObject({ source: 'mock', notes: true, comments: true, revokeAuthorization: true });
     expect(request).toMatchObject({ source: 'mock' });
     expect(credential).toMatchObject({ source: 'mock' });
     expect(refreshed).toMatchObject({ source: 'mock' });
+    await expect(connector.revokeAuthorization!({ accountId: 'account-1' })).resolves.toEqual({ revoked: true });
   });
 
   it('returns an explicitly non-navigable mock authorization sentinel', async () => {

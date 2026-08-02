@@ -15,12 +15,10 @@ export class AuthGuard implements CanActivate {
       const csrf = request.headers['x-csrf-token'];
       if (!csrf || !this.auth.csrfMatches(session.csrfHash, csrf)) throw new ForbiddenException('invalid CSRF token');
       const fetchSite = request.headers['sec-fetch-site'];
-      if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) throw new ForbiddenException('cross-site request rejected');
+      if (fetchSite !== 'same-origin') throw new ForbiddenException('cross-site request rejected');
       const origin = request.headers.origin;
-      if (origin) {
-        const allowed = process.env.APP_ORIGIN ?? 'http://127.0.0.1';
-        if (origin !== allowed) throw new ForbiddenException('origin rejected');
-      }
+      const allowed = process.env.APP_ORIGIN ?? 'http://127.0.0.1';
+      if (origin !== allowed) throw new ForbiddenException('origin rejected');
     }
     return true;
   }

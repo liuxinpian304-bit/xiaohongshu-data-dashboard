@@ -1,0 +1,27 @@
+import { prisma } from '@xhs/database';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { CommentsService } from './comments.service';
+
+describe('safe comment CSV export', () => {
+  beforeEach(async () => { await prisma.syncJob.deleteMany(); await prisma.comment.deleteMany(); await prisma.note.deleteMany(); await prisma.account.deleteMany(); });
+  async function seed(contents: string[]) {
+    const account = await prisma.account.create({ data: { connectorType: 'export-test', platformId: crypto.randomUUID() } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'export-test', platformId: crypto.randomUUID(), title: 'note', publishedAt: new Date() } });
+    await prisma.comment.createMany({ data: contents.map((content) => ({ noteId: note.id, connectorType: 'export-test', platformId: crypto.randomUUID(), content, publishedAt: new Date(), source: 'official' })) });
+    return account;
+  }
+  it('streams rows in chunks and neutralizes spreadsheet formulas', async () => {
+    const account = await seed(['=HYPERLINK("https://evil")', 'safe']);
+    const result = await new CommentsService({ maxRows: 100, maxBytes: 1_000_000, chunkSize: 1 }).export({ accountId: account.id });
+    expect(result.background).toBe(false);
+    let csv = ''; for await (const chunk of result.stream!) csv += chunk;
+    expect(csv).toContain('"\'=HYPERLINK(""https://evil"")"');
+  });
+  it('creates a scoped background export before loading oversized result rows', async () => {
+    const account = await seed(['one', 'two', 'three']);
+    const result = await new CommentsService({ maxRows: 2, maxBytes: 1_000_000, chunkSize: 1 }).export({ accountId: account.id });
+    expect(result.background).toBe(true);
+    const job = await prisma.syncJob.findUniqueOrThrow({ where: { id: result.jobId } });
+    expect(job.payload).toMatchObject({ accountIds: [account.id], filter: { accountId: account.id } });
+  });
+});

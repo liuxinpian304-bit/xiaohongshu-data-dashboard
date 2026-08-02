@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 
 import { NotificationsService, type NotificationsStore } from './notifications.service';
 import { PushEndpointPolicy } from '@xhs/domain';
+import { AuditService } from '../common/audit.service';
 
 function memoryStore(): NotificationsStore & { readAt: Date | null; subscriptions: unknown[] } {
   return {
@@ -11,22 +12,23 @@ function memoryStore(): NotificationsStore & { readAt: Date | null; subscription
     list: async () => [{ id: 'notification-1', readAt: null }],
     markRead: async function (id, readAt) { this.readAt = readAt; return { id, readAt }; },
     notificationAccountId: async () => 'account-1',
-    savePushSubscription: async function (subscription) { this.subscriptions.push(subscription); return { id: 'subscription-1' }; },
+    savePushSubscription: async function (subscription, beforeCommit) { await beforeCommit?.(); this.subscriptions.push(subscription); return { id: 'subscription-1' }; },
     hasManagedAccount: async () => true,
   };
 }
+const audit = { record: async () => ({}) } as unknown as AuditService;
 
 describe('NotificationsService', () => {
   it('persists a notification read timestamp', async () => {
     const store = memoryStore();
-    const result = await new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver)).markRead('notification-1');
+    const result = await new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver), audit).markRead('notification-1');
     expect(store.readAt).toBeInstanceOf(Date);
     expect(result).toMatchObject({ id: 'notification-1', readAt: store.readAt });
   });
 
   it('rejects a push subscription without an auth secret', async () => {
     const store = memoryStore();
-    await expect(new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver)).subscribe({
+    await expect(new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver), audit).subscribe({
       accountId: 'account-1', endpoint: 'https://push.example/subscription', keys: { p256dh: 'public-key' },
     })).rejects.toBeInstanceOf(BadRequestException);
     expect(store.subscriptions).toHaveLength(0);
@@ -34,7 +36,7 @@ describe('NotificationsService', () => {
 
   it('stores a valid push subscription in normalized form', async () => {
     const store = memoryStore();
-    await new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver)).subscribe({
+    await new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver), audit).subscribe({
       accountId: 'account-1', endpoint: 'https://push.example/subscription', keys: { p256dh: 'public-key', auth: 'auth-secret' },
     });
     expect(store.subscriptions).toEqual([{
@@ -43,9 +45,18 @@ describe('NotificationsService', () => {
   });
 
   it('rejects a malformed HTTPS endpoint', async () => {
-    await expect(new NotificationsService(memoryStore(), new PushEndpointPolicy(['push.example'], publicResolver)).subscribe({
+    await expect(new NotificationsService(memoryStore(), new PushEndpointPolicy(['push.example'], publicResolver), audit).subscribe({
       accountId: 'account-1', endpoint: 'https://', keys: { p256dh: 'public-key', auth: 'auth-secret' },
     })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('does not retain notification configuration when its audit fails', async () => {
+    const store = memoryStore();
+    const failingAudit = { record: async () => { throw new Error('audit unavailable'); } } as AuditService;
+    await expect(new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver), failingAudit).subscribe({
+      accountId: 'account-1', endpoint: 'https://push.example/subscription', keys: { p256dh: 'public-key', auth: 'auth-secret' },
+    })).rejects.toThrow('audit unavailable');
+    expect(store.subscriptions).toHaveLength(0);
   });
 });
 

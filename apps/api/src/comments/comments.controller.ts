@@ -1,2 +1,23 @@
-import{Controller,Get,Header,HttpCode,Query,Res,UseGuards}from'@nestjs/common';import type{Response}from'express';import{AuthGuard}from'../auth/auth.guard';import{pagination}from'../common/pagination.dto';import{uuid}from'../common/validation';import{CommentsService,CommentFilter}from'./comments.service';
-@Controller('comments')@UseGuards(AuthGuard)export class CommentsController{constructor(private comments:CommentsService){}private filter(q:{accountId?:string;noteId?:string;from?:string;to?:string}):CommentFilter{return{accountId:q.accountId?uuid(q.accountId,'accountId'):undefined,noteId:q.noteId?uuid(q.noteId,'noteId'):undefined,from:q.from?new Date(q.from):undefined,to:q.to?new Date(q.to):undefined}}@Get()list(@Query()q:{accountId?:string;noteId?:string;from?:string;to?:string;cursor?:string;limit?:string}){const p=pagination(q);return this.comments.list(this.filter(q),p.cursor,p.limit)}@Get('export.csv')async export(@Query()q:{accountId?:string;noteId?:string;from?:string;to?:string},@Res({passthrough:true})res:Response){const result=await this.comments.export(this.filter(q));if(result.background){res.status(202);return{jobId:result.jobId}}res.type('text/csv; charset=utf-8');res.setHeader('Content-Disposition','attachment; filename="comments.csv"');return result.csv}}
+import { BadRequestException, Controller, Get, Inject, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
+import { AuthGuard } from '../auth/auth.guard';
+import { pagination } from '../common/pagination.dto';
+import { strictDate, uuid } from '../common/validation';
+import { CommentsService, type CommentFilter } from './comments.service';
+import type { CommentQueryDto } from '../common/api.dto';
+
+@Controller('comments') @UseGuards(AuthGuard)
+export class CommentsController {
+  constructor(@Inject(CommentsService) private readonly comments: CommentsService) {}
+  private filter(query: CommentQueryDto): CommentFilter {
+    const from = query.from ? strictDate(query.from, 'from') : undefined; const to = query.to ? strictDate(query.to, 'to') : undefined;
+    if (from && to && from > to) throw new BadRequestException('from must not be after to');
+    return { accountId: query.accountId ? uuid(query.accountId, 'accountId') : undefined, noteId: query.noteId ? uuid(query.noteId, 'noteId') : undefined, from, to };
+  }
+  @Get() list(@Query() query: CommentQueryDto) { const p = pagination(query); return this.comments.list(this.filter(query), p.cursor, p.limit); }
+  @Get('export.csv') async export(@Query() query: CommentQueryDto, @Res() response: Response) {
+    const result = await this.comments.export(this.filter(query));
+    if (result.background) { response.status(202).json({ jobId: result.jobId, jobIds: result.jobIds }); return; }
+    response.type('text/csv; charset=utf-8'); response.setHeader('Content-Disposition', 'attachment; filename="comments.csv"'); result.stream.pipe(response);
+  }
+}

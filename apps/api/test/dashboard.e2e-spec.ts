@@ -25,7 +25,8 @@ describe('dashboard API', () => {
 
   it('returns dashboard data with explicit availability to an authenticated admin', async () => {
     const agent = request.agent(app.getHttpServer());
-    await agent.post('/auth/login').send({ password: 'dashboard password' }).expect(201);
+    const csrf = await agent.get('/auth/csrf').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').expect(200);
+    await agent.post('/auth/login').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', csrf.body.csrfToken).send({ password: 'dashboard password' }).expect(201);
     const response = await agent.get('/dashboard?period=daily').expect(200);
     expect(response.body.cards[0]).toMatchObject({ key: expect.any(String), availability: expect.stringMatching(/available|zero|not_synced|awaiting_authorization|not_provided/) });
   });
@@ -34,5 +35,10 @@ describe('dashboard API', () => {
     const response = await request(app.getHttpServer()).get('/docs/openapi.json').expect(200);
     const ids = Object.values(response.body.paths as Record<string, Record<string, { operationId?: string }>>).flatMap((path) => Object.values(path).map((operation) => operation.operationId).filter(Boolean));
     expect(new Set(ids).size).toBe(ids.length);
+    expect(response.body.paths['/accounts'].get.responses['200'].content['application/json'].schema).toBeTruthy();
+    expect(response.body.paths['/jobs'].post.responses['202']).toBeTruthy();
+    expect(response.body.paths['/comments/export.csv'].get.responses['200'].content['text/csv']).toBeTruthy();
+    expect(response.body.paths['/auth/login'].post.requestBody).toBeTruthy();
+    expect(response.body.paths['/auth/login'].post.parameters).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'X-CSRF-Token', in: 'header' })]));
   });
 });

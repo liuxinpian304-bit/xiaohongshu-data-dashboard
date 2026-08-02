@@ -1,0 +1,195 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SyncJobStatus {
+  pending
+  running
+  succeeded
+  failed
+}
+
+model Account {
+  id            String                @id @default(uuid()) @db.Uuid
+  connectorType String
+  platformId    String
+  displayName   String?
+  createdAt     DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime              @updatedAt @db.Timestamptz(3)
+  credentials   Credential[]
+  capabilities  ConnectorCapability[]
+  notes         Note[]
+  syncJobs      SyncJob[]
+  reports       Report[]
+  notifications Notification[]
+
+  @@unique([connectorType, platformId])
+}
+
+model Credential {
+  id        String    @id @default(uuid()) @db.Uuid
+  accountId String    @db.Uuid
+  kind      String
+  secret    String
+  expiresAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, kind])
+}
+
+model ConnectorCapability {
+  id         String   @id @default(uuid()) @db.Uuid
+  accountId  String   @db.Uuid
+  capability String
+  enabled    Boolean  @default(false)
+  checkedAt  DateTime @default(now()) @db.Timestamptz(3)
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, capability])
+}
+
+model Note {
+  id            String           @id @default(uuid()) @db.Uuid
+  accountId     String           @db.Uuid
+  connectorType String
+  platformId    String
+  title         String
+  publishedAt   DateTime         @db.Timestamptz(3)
+  firstSeenAt   DateTime         @default(now()) @db.Timestamptz(3)
+  lastSeenAt    DateTime         @default(now()) @db.Timestamptz(3)
+  createdAt     DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime         @updatedAt @db.Timestamptz(3)
+  account       Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  snapshots     MetricSnapshot[]
+  comments      Comment[]
+
+  @@unique([connectorType, platformId])
+  @@index([accountId, publishedAt])
+}
+
+model MetricDefinition {
+  id            String           @id @default(uuid()) @db.Uuid
+  key           String           @unique
+  displayName   String
+  unit          String
+  createdAt     DateTime         @default(now()) @db.Timestamptz(3)
+  snapshots     MetricSnapshot[]
+  reportMetrics ReportMetric[]
+}
+
+model MetricSnapshot {
+  id                 String           @id @default(uuid()) @db.Uuid
+  noteId             String           @db.Uuid
+  metricDefinitionId String           @db.Uuid
+  value              Decimal          @db.Decimal(20, 4)
+  capturedAt         DateTime         @db.Timestamptz(3)
+  source             String
+  note               Note             @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  metricDefinition   MetricDefinition @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
+
+  @@unique([noteId, metricDefinitionId, capturedAt])
+  @@index([capturedAt])
+}
+
+model Comment {
+  id               String   @id @default(uuid()) @db.Uuid
+  noteId           String?  @db.Uuid
+  connectorType    String
+  platformId       String
+  parentPlatformId String?
+  content          String
+  publishedAt      DateTime @db.Timestamptz(3)
+  firstSeenAt      DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt       DateTime @default(now()) @db.Timestamptz(3)
+  likeCount        Int      @default(0)
+  source           String
+  note             Note?    @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@unique([connectorType, platformId])
+  @@index([noteId, publishedAt])
+  @@index([connectorType, parentPlatformId])
+}
+
+model SyncJob {
+  id          String        @id @default(uuid()) @db.Uuid
+  accountId   String        @db.Uuid
+  status      SyncJobStatus @default(pending)
+  startedAt   DateTime?     @db.Timestamptz(3)
+  completedAt DateTime?     @db.Timestamptz(3)
+  error       String?
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  account     Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  steps       SyncStep[]
+
+  @@index([accountId, createdAt])
+}
+
+model SyncStep {
+  id          String        @id @default(uuid()) @db.Uuid
+  syncJobId   String        @db.Uuid
+  name        String
+  status      SyncJobStatus @default(pending)
+  startedAt   DateTime?     @db.Timestamptz(3)
+  completedAt DateTime?     @db.Timestamptz(3)
+  error       String?
+  syncJob     SyncJob       @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
+
+  @@unique([syncJobId, name])
+}
+
+model Report {
+  id          String         @id @default(uuid()) @db.Uuid
+  accountId   String         @db.Uuid
+  reportType  String
+  periodStart DateTime       @db.Timestamptz(3)
+  periodEnd   DateTime       @db.Timestamptz(3)
+  generatedAt DateTime       @default(now()) @db.Timestamptz(3)
+  account     Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  metrics     ReportMetric[]
+
+  @@unique([accountId, reportType, periodStart, periodEnd])
+}
+
+model ReportMetric {
+  id                 String           @id @default(uuid()) @db.Uuid
+  reportId           String           @db.Uuid
+  metricDefinitionId String           @db.Uuid
+  value              Decimal          @db.Decimal(20, 4)
+  report             Report           @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  metricDefinition   MetricDefinition @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
+
+  @@unique([reportId, metricDefinitionId])
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  accountId String    @db.Uuid
+  channel   String
+  status    String
+  payload   Json
+  sentAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actor      String
+  action     String
+  entityType String
+  entityId   String
+  details    Json?
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

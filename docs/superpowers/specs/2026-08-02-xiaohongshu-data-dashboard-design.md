@@ -104,6 +104,54 @@
 7. **任务队列与调度器**：执行定时同步、报告生成和重算任务。
 8. **PostgreSQL**：保存业务数据、快照、游标、报告、通知和审计记录。
 
+### 5.1 技术栈
+
+- **Monorepo**：pnpm workspace，按应用和共享包拆分代码。
+- **Web 客户端**：Next.js App Router、React、TypeScript、Tailwind CSS、shadcn/ui、Apache ECharts。
+- **应用 API**：NestJS、TypeScript、REST、OpenAPI。
+- **后台 Worker**：NestJS 独立进程，消费 BullMQ 任务。
+- **数据库**：PostgreSQL、Prisma ORM；数据规模达到需要时再为快照和评论表启用原生分区。
+- **任务与缓存**：Redis、BullMQ。
+- **通知**：站内通知、Web Push；渠道适配器预留企业微信和邮件。
+- **测试**：Vitest、Playwright。
+- **本地和首期部署**：Docker Compose，分别运行 Web、API、Worker、PostgreSQL 和 Redis。
+
+### 5.2 运行架构
+
+```mermaid
+flowchart LR
+    U["管理员浏览器"] --> W["Next.js Web"]
+    W --> A["NestJS API"]
+    A --> P[("PostgreSQL")]
+    A --> R[("Redis / BullMQ")]
+    R --> K["NestJS Worker"]
+    K --> C["官方 API 连接器"]
+    C --> X["小红书官方 API"]
+    K --> P
+    K --> N["通知适配器"]
+    N --> W
+    N --> B["Web Push"]
+    S["周期调度器"] --> R
+```
+
+Web 只负责交互和数据展示，不直接持有官方凭证。API 负责权限、查询和任务控制；耗时同步、评论分页和报告生成全部由 Worker 执行，避免网页请求超时。Redis 保存任务状态和调度信息，PostgreSQL 是业务数据的唯一事实来源。
+
+### 5.3 代码边界
+
+```text
+apps/
+  web/                 网页和浏览器通知
+  api/                 REST API、管理员登录和任务控制
+  worker/              同步、报告和通知任务
+packages/
+  database/            Prisma 模型、迁移和数据库访问
+  connector/           连接器契约、模拟连接器和正式连接器
+  domain/              指标、评论、报告和任务领域规则
+  shared/              公共类型、校验和工具
+```
+
+`apps` 只能通过 `packages` 暴露的接口使用共享能力，不能跨应用导入内部文件。官方 API 的字段只存在于连接器边界内，进入业务层前必须转换为统一领域模型。
+
 连接器暴露稳定接口：
 
 - `getCapabilities()`：返回当前应用和账号获批能力。

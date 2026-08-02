@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/main';
+import { prisma } from '@xhs/database';
 
 describe('dashboard API', () => {
   let app: INestApplication;
@@ -52,5 +53,24 @@ describe('dashboard API', () => {
       expect(response.body.paths[path].get.responses['200'].content['application/json'].schema.properties.items.items.$ref).toBe(`#/components/schemas/${model}`);
     }
     expect(response.body.paths['/comments/export.csv'].get.responses['202'].content['application/json'].schema.$ref).toBe('#/components/schemas/BackgroundExportDto');
+  });
+
+  it('documents every field emitted by representative resource responses', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'schema-test', platformId: crypto.randomUUID(), displayName: 'Schema', capabilities: { create: { capability: 'comments', enabled: true } } } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'schema-test', platformId: crypto.randomUUID(), title: 'Schema note', publishedAt: new Date() } });
+    const comment = await prisma.comment.create({ data: { noteId: note.id, connectorType: 'schema-test', platformId: crypto.randomUUID(), content: 'Schema comment', publishedAt: new Date(), source: 'official' } });
+    const job = await prisma.syncJob.create({ data: { accountId: account.id } });
+    const metricDefinition = await prisma.metricDefinition.create({ data: { key: `schema-${crypto.randomUUID()}`, displayName: 'Schema metric', unit: 'count' } });
+    const report = await prisma.report.create({ data: { accountId: account.id, reportType: 'daily', periodStart: new Date('2026-01-01'), periodEnd: new Date('2026-01-02'), metrics: { create: { metricDefinitionId: metricDefinition.id, availability: 'available', value: 1 } } } });
+    const notification = await prisma.notification.create({ data: { accountId: account.id, eventId: crypto.randomUUID(), type: 'sync_completed', title: 'done', body: 'done', link: '/jobs' } });
+    const agent = request.agent(app.getHttpServer()); const pre = await agent.get('/auth/csrf').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').expect(200);
+    await agent.post('/auth/login').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', pre.body.csrfToken).send({ password: 'dashboard password' }).expect(201);
+    const spec = (await request(app.getHttpServer()).get('/docs/openapi.json')).body;
+    for (const [path, model, expectedId] of [['/accounts', 'AccountDto', account.id], ['/jobs', 'SyncJobDto', job.id], ['/notes', 'NoteDto', note.id], ['/comments', 'CommentDto', comment.id], ['/reports', 'ReportDto', report.id], ['/notifications', 'NotificationDto', notification.id]] as const) {
+      const response = await agent.get(path).query({ limit: 200 }).expect(200); const item = response.body.items.find((candidate: { id: string }) => candidate.id === expectedId); const schema = spec.components.schemas[model];
+      for (const key of Object.keys(item)) expect(schema.properties, `${model}.${key}`).toHaveProperty(key);
+      if (model === 'AccountDto') for (const key of Object.keys(item.capabilities[0])) expect(spec.components.schemas.ConnectorCapabilityDto.properties).toHaveProperty(key);
+      if (model === 'ReportDto') for (const key of Object.keys(item.metrics[0])) expect(spec.components.schemas.ReportMetricDto.properties).toHaveProperty(key);
+    }
   });
 });

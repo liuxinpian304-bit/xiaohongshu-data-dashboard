@@ -44,7 +44,7 @@ export class CommentsService {
       await rm(directory, { recursive: true, force: true });
       const accountIds = f.accountId ? [f.accountId] : f.accountIds ?? (await prisma.note.findMany({ where: { comments: { some: this.where(f) } }, distinct: ['accountId'], select: { accountId: true } })).map((row) => row.accountId);
       if (!accountIds.length) throw new BadRequestException('export scope has no managed accounts');
-      const jobs = await prisma.$transaction(accountIds.map((accountId) => prisma.syncJob.create({ data: { accountId, currentStage: 'export_comments', payload: { accountIds, filter: { accountId: f.accountId ?? null, accountIds: f.accountIds ?? null, noteId: f.noteId ?? null, from: f.from?.toISOString() ?? null, to: f.to?.toISOString() ?? null }, maxRows: this.limits.maxRows, maxBytes: this.limits.maxBytes } } })));
+      const jobs = await prisma.$transaction(accountIds.map((accountId) => prisma.syncJob.create({ data: { accountId, currentStage: 'export_comments', payload: { accountIds, filter: { accountId, noteId: f.noteId ?? null, from: f.from?.toISOString() ?? null, to: f.to?.toISOString() ?? null }, requestedScope: { accountId: f.accountId ?? null, accountIds, noteId: f.noteId ?? null, from: f.from?.toISOString() ?? null, to: f.to?.toISOString() ?? null }, maxRows: this.limits.maxRows, maxBytes: this.limits.maxBytes } } })));
       return { background: true as const, jobId: jobs[0].id, jobIds: jobs.map((job) => job.id) };
     }
     const stream = createReadStream(filePath); const cleanup = () => { void rm(directory, { recursive: true, force: true }); }; stream.once('close', cleanup); stream.once('error', cleanup);

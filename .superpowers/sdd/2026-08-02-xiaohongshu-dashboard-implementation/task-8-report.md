@@ -100,3 +100,28 @@
 - Worker: 12 files, 65 tests passed.
 - API build passed; API, connector, database, and worker typechecks passed.
 - PostgreSQL 18 container was healthy; Prisma found 12 migrations and no pending migration; `git diff --check` passed.
+
+## Contract review fix round 3
+
+### RED evidence
+
+- Non-UUID cursors returned 500 on five paginated resources, while notifications ignored cursors entirely.
+- Multi-account background exports stored the broad account scope in every job's executable filter instead of binding each job to its own account.
+- Notification listing returned a raw array instead of the common cursor-page envelope.
+- Runtime/OpenAPI comparison first exposed missing account fields and then required complete resource and nested capability/metric schemas.
+
+### GREEN implementation
+
+- Cursor DTO validation and OpenAPI now require UUIDs on every paginated resource; executable e2e checks require a 400 response with the documented string error message.
+- Notification storage, service, controller, and OpenAPI now use deterministic UUID cursor pagination with `{ items, pageInfo }`.
+- Each background CSV job now has an account-specific `filter.accountId`; the original multi-account request is retained separately as `requestedScope` while the compatibility `accountIds` field remains available.
+- Resource DTOs now describe every field actually emitted for accounts, jobs, notes, comments, reports, and notifications, including nested connector capabilities and report metrics. Runtime response keys are checked against the generated OpenAPI document.
+- Validation errors are normalized to the documented string `ErrorDto.message`, and the account DELETE body is documented as optional.
+
+### Final verification
+
+- API unit/integration: 10 files, 40 tests passed.
+- API e2e: 2 files, 26 tests passed against PostgreSQL.
+- Connector: 1 file, 11 tests passed; database integration: 2 files, 5 tests passed; worker: 12 files, 65 tests passed.
+- API build passed; API, connector, database, and worker typechecks passed.
+- PostgreSQL 18 was healthy; Prisma found 12 migrations and no pending migration; `git diff --check` passed.

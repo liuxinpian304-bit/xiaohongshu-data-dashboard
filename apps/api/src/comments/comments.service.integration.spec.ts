@@ -37,4 +37,12 @@ describe('safe comment CSV export', () => {
     const result = await new CommentsService({ maxRows: 100, maxBytes: 450, chunkSize: 10 }).export({ accountId: account.id });
     expect(result.background).toBe(true);
   });
+  it('creates one uniquely scoped background job per account', async () => {
+    const first = await seed(['first']); const second = await seed(['second']);
+    const result = await new CommentsService({ maxRows: 1, maxBytes: 1_000_000, chunkSize: 10 }).export({ accountIds: [first.id, second.id] });
+    expect(result.background).toBe(true);
+    const jobs = await prisma.syncJob.findMany({ where: { id: { in: result.jobIds } }, orderBy: { accountId: 'asc' } });
+    expect(jobs).toHaveLength(2);
+    for (const job of jobs) expect(job.payload).toMatchObject({ filter: { accountId: job.accountId }, requestedScope: { accountIds: expect.arrayContaining([first.id, second.id]) } });
+  });
 });

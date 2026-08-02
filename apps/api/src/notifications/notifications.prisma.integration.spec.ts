@@ -14,7 +14,7 @@ describe('Prisma notifications API store', () => {
   it('lists all managed-account notifications and persists read state', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'api-notification', platformId: crypto.randomUUID() } });
     const notification = await prisma.notification.create({ data: { eventId: crypto.randomUUID(), accountId: account.id, type: 'sync_completed', title: '完成', body: '已完成', link: '/sync-jobs/job-1' } });
-    expect(await service.list()).toHaveLength(1);
+    expect((await service.list()).items).toHaveLength(1);
     await service.markRead(notification.id);
     expect((await prisma.notification.findUniqueOrThrow({ where: { id: notification.id } })).readAt).toBeInstanceOf(Date);
   });

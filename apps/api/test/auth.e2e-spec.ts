@@ -114,4 +114,8 @@ describe('admin authentication', () => {
     const { agent } = await login();
     await agent.get('/comments').query({ accountIds: ['not-a-uuid'] }).expect(400);
   });
+  it.each(['/accounts', '/jobs', '/notes', '/comments', '/reports', '/notifications'])('rejects a non-UUID pagination cursor on %s', async (path) => {
+    const { agent } = await login(); const response = await agent.get(path).query({ cursor: 'not-a-uuid' }).expect(400);
+    expect(response.body).toMatchObject({ statusCode: 400 }); expect(typeof response.body.message).toBe('string');
+  });
 });

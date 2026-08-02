@@ -9,7 +9,7 @@ function memoryStore(): NotificationsStore & { readAt: Date | null; subscription
   return {
     readAt: null,
     subscriptions: [],
-    list: async () => [{ id: 'notification-1', readAt: null }],
+    list: async () => [{ id: '00000000-0000-4000-8000-000000000001', readAt: null }],
     markRead: async function (id, readAt) { this.readAt = readAt; return { id, readAt }; },
     notificationAccountId: async () => 'account-1',
     savePushSubscription: async function (subscription, beforeCommit) { await beforeCommit?.(); this.subscriptions.push(subscription); return { id: 'subscription-1' }; },
@@ -24,6 +24,10 @@ describe('NotificationsService', () => {
     const result = await new NotificationsService(store, new PushEndpointPolicy(['push.example'], publicResolver), audit).markRead('notification-1');
     expect(store.readAt).toBeInstanceOf(Date);
     expect(result).toMatchObject({ id: 'notification-1', readAt: store.readAt });
+  });
+  it('returns notifications in the common cursor-page envelope', async () => {
+    const result = await new NotificationsService(memoryStore(), new PushEndpointPolicy(['push.example'], publicResolver), audit).list(undefined, undefined, 1);
+    expect(result).toEqual({ items: [{ id: '00000000-0000-4000-8000-000000000001', readAt: null }], pageInfo: { nextCursor: null, hasMore: false } });
   });
 
   it('rejects a push subscription without an auth secret', async () => {

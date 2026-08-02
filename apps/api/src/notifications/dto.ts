@@ -1,4 +1,4 @@
-import { PushEndpointPolicy } from './push-endpoint.policy';
+import { PushEndpointPolicy } from '@xhs/domain';
 
 export interface PushSubscriptionDto {
   accountId: string;

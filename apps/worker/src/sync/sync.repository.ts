@@ -1,5 +1,5 @@
 import type { Comment, ConnectorCapabilities, Note, NoteMetric, Reply } from '@xhs/connector';
-import type { DatabaseClient, TransactionClient } from '@xhs/database';
+import { Prisma, type DatabaseClient, type TransactionClient } from '@xhs/database';
 import { createHash } from 'node:crypto';
 
 export type SyncStage = 'authorize' | 'notes' | 'metrics' | 'comments' | 'replies' | 'complete';
@@ -97,16 +97,19 @@ export class SyncRepository {
   async saveCommentsPage(jobId: string, accountId: string, connectorType: string, notePlatformId: string, comments: Comment[], nextCursor: string | null, unverifiable = false) {
     return this.db.$transaction(async (tx) => {
       const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
-      const existing = new Set((await tx.comment.findMany({
-        where: { OR: comments.map((comment) => ({ connectorType: comment.source, platformId: comment.platformId })) },
-        select: { connectorType: true, platformId: true },
-      })).map((comment) => `${comment.connectorType}\0${comment.platformId}`));
-      const created = comments.filter((comment) => !existing.has(`${comment.source}\0${comment.platformId}`));
+      const rows = comments.map((comment) => Prisma.sql`(gen_random_uuid(), ${note.id}::uuid, ${comment.source}, ${comment.platformId}, NULL, ${comment.content}, ${new Date(comment.createdAt)}, ${comment.source})`);
+      const inserted = rows.length ? await tx.$queryRaw<Array<{ platformId: string }>>(Prisma.sql`
+        INSERT INTO "Comment" ("id", "noteId", "connectorType", "platformId", "parentPlatformId", "content", "publishedAt", "source")
+        VALUES ${Prisma.join(rows)}
+        ON CONFLICT ("connectorType", "platformId") DO NOTHING
+        RETURNING "platformId"
+      `) : [];
+      const insertedIds = new Set(inserted.map(({ platformId }) => platformId));
+      const created = comments.filter((comment) => insertedIds.has(comment.platformId));
       for (const comment of comments) {
-        await tx.comment.upsert({
+        await tx.comment.update({
           where: { connectorType_platformId: { connectorType: comment.source, platformId: comment.platformId } },
-          create: { noteId: note.id, connectorType: comment.source, platformId: comment.platformId, parentPlatformId: null, content: comment.content, publishedAt: new Date(comment.createdAt), source: comment.source },
-          update: { noteId: note.id, content: comment.content, publishedAt: new Date(comment.createdAt), lastSeenAt: new Date() },
+          data: { noteId: note.id, content: comment.content, publishedAt: new Date(comment.createdAt), lastSeenAt: new Date() },
         });
       }
       await this.upsertCheckpoint(tx, jobId, 'comments', notePlatformId, nextCursor);

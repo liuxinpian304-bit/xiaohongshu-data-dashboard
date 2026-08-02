@@ -1,6 +1,6 @@
 import type { DatabaseClient } from '@xhs/database';
 import webpush from 'web-push';
-import { PushEndpointPolicy } from './push-endpoint.policy';
+import { PushEndpointPolicy } from '@xhs/domain';
 
 export const NOTIFICATION_EVENT_TYPES = [
   'sync_completed', 'sync_failed', 'authorization_expired', 'new_comment',
@@ -52,12 +52,12 @@ export class WebPushGateway implements PushGateway {
 
   async send(subscription: PushSubscriptionRecord, notification: NotificationRecord): Promise<PushDeliveryResult> {
     try {
-      await this.endpointPolicy.assertResolvedAllowed(subscription.endpoint);
+      const pinned = await this.endpointPolicy.resolveAndPin(subscription.endpoint);
       if (!this.subject || !this.publicKey || !this.privateKey) throw new Error('Web Push VAPID configuration is missing');
-      webpush.setVapidDetails(this.subject, this.publicKey, this.privateKey);
       const response = await webpush.sendNotification(
         { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
         JSON.stringify({ title: notification.title, body: notification.body, link: notification.link }),
+        { agent: pinned.agent, vapidDetails: { subject: this.subject, publicKey: this.publicKey, privateKey: this.privateKey } },
       );
       return { outcome: 'delivered', statusCode: response.statusCode };
     } catch (error) {

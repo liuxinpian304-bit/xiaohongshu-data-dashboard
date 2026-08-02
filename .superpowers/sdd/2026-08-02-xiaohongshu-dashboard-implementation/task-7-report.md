@@ -61,3 +61,25 @@
 - allowlist hostname 在接收与发送前解析全部 A/AAAA，任一目标为 loopback、private 或 link-local 即拒绝；发送仍复验原 URL policy。
 - Worker DB spec 改为文件串行，消除共享 PostgreSQL 清理造成的跨文件竞态。
 - 最终：Worker 11 files / 64 tests，API 5 files / 9 tests；两端 typecheck/build、database typecheck、PG18 migrate status 与 diff check 全部通过。
+
+## Fix round 2
+
+### RED
+
+- AdminGuard 测试覆盖 missing、错误前缀、同长度错误和正确 token；旧实现仍使用普通字符串比较。
+- 共享 Push policy 测试最初因模块不存在失败，并明确覆盖 `fe90::1`、`::ffff:127.0.0.1`、`::`、`::1`、`fc00::1`、`fd12::1` 及私有 IPv4。
+- DNS rebinding 测试模拟首次解析公共地址、潜在第二次解析 loopback，要求 pinned agent 不再调用 resolver。
+- 两个独立 PrismaClient 并发保存同一 comment 时，旧 pre-read+upsert 实际返回 `[1,1]`，证明会双报 created。
+
+### GREEN
+
+- Admin token 统一 UTF-8 Buffer 编码；仅等长时使用 `crypto.timingSafeEqual`，缺失或长度不同安全失败。
+- API 与 Worker 删除各自 policy，统一使用 `@xhs/domain` 的 `PushEndpointPolicy`；默认 allowlist 固定为明确 Web Push provider，不读取任意环境 suffix。
+- policy 完整拒绝非全局 IPv4/IPv6（含 IPv4-mapped 特殊地址），解析后创建 HTTPS Agent，其 lookup 永远只返回已验证 public IP；原 endpoint hostname 保持 TLS SNI 与证书校验，web-push 单请求不跟随 redirect。
+- comment 保存改为 PostgreSQL 批量 `INSERT ... ON CONFLICT DO NOTHING RETURNING`，created 只来自本事务实际插入行，再单独更新 mutable fields；双连接并发测试为 `[0,1]` 且总行数 1。
+
+### 覆盖文件
+
+- `packages/domain/src/push-endpoint-policy.ts` 及测试、domain exports/dependencies。
+- API AdminGuard 测试与共享 policy 接入；Worker WebPushGateway pinned agent 接入。
+- `SyncRepository.saveCommentsPage` 与 `sync.repository.comment.integration.spec.ts`。

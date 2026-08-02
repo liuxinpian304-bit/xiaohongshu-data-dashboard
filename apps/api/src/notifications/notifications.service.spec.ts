@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 
 import { NotificationsService, type NotificationsStore } from './notifications.service';
-import { PushEndpointPolicy } from './push-endpoint.policy';
+import { PushEndpointPolicy } from '@xhs/domain';
 
 function memoryStore(): NotificationsStore & { readAt: Date | null; subscriptions: unknown[] } {
   return {
@@ -49,4 +49,4 @@ describe('NotificationsService', () => {
   });
 });
 
-const publicResolver = async () => ['203.0.113.1'];
+const publicResolver = async () => ['8.8.8.8'];

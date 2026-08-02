@@ -3,10 +3,10 @@ import { prisma } from '@xhs/database';
 import { NotFoundException } from '@nestjs/common';
 
 import { NotificationsService, PrismaNotificationsStore } from './notifications.service';
-import { PushEndpointPolicy } from './push-endpoint.policy';
+import { PushEndpointPolicy } from '@xhs/domain';
 
 describe('Prisma notifications API store', () => {
-  const service = new NotificationsService(new PrismaNotificationsStore(), new PushEndpointPolicy(['push.example.test'], async () => ['203.0.113.1']));
+  const service = new NotificationsService(new PrismaNotificationsStore(), new PushEndpointPolicy(['push.example.test'], async () => ['8.8.8.8']));
   beforeEach(async () => { await prisma.pushSubscription.deleteMany(); await prisma.notification.deleteMany(); await prisma.account.deleteMany(); });
   afterAll(async () => prisma.$disconnect());
 

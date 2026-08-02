@@ -7,7 +7,7 @@ import {
   type NotificationRepository,
   type PushGateway,
 } from './notification.service';
-import { PushEndpointPolicy } from './push-endpoint.policy';
+import { PushEndpointPolicy } from '@xhs/domain';
 
 class MemoryNotificationRepository implements NotificationRepository {
   records: NotificationRecord[] = [];
@@ -102,6 +102,6 @@ describe('NotificationService', () => {
 
   it('rejects an allowlisted hostname that resolves to a private destination', async () => {
     const policy = new PushEndpointPolicy(['push.example.test'], async () => ['127.0.0.1']);
-    await expect(policy.assertResolvedAllowed('https://push.example.test/subscription')).rejects.toThrow('private');
+    await expect(policy.resolveAndPin('https://push.example.test/subscription')).rejects.toThrow('public');
   });
 });

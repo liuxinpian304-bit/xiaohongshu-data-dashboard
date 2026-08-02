@@ -5,3 +5,5 @@ export { getReportPeriod } from './report-period';
 export { aggregateCumulative } from './metric-aggregation';
 export type { ReportPeriod, ReportType } from './report-period';
 export type { SyncJob, SyncJobStatus } from './sync-job';
+export { DEFAULT_WEB_PUSH_HOST_SUFFIXES, PushEndpointPolicy, isPublicAddress } from './push-endpoint-policy';
+export type { PinnedPushEndpoint } from './push-endpoint-policy';

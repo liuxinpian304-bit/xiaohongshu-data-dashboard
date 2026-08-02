@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { prisma } from '@xhs/database';
 
 import { parsePushSubscription } from './dto';
-import { PushEndpointPolicy } from './push-endpoint.policy';
+import { PushEndpointPolicy } from '@xhs/domain';
 
 export const NOTIFICATIONS_STORE = Symbol('NOTIFICATIONS_STORE');
 
@@ -49,7 +49,7 @@ export class NotificationsService {
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : 'invalid push subscription');
     }
-    try { await this.endpointPolicy.assertResolvedAllowed(subscription.endpoint); }
+    try { await this.endpointPolicy.resolveAndPin(subscription.endpoint); }
     catch (error) { throw new BadRequestException(error instanceof Error ? error.message : 'invalid push destination'); }
     if (!(await this.store.hasManagedAccount(subscription.accountId))) throw new NotFoundException('managed account not found');
     return await this.store.savePushSubscription({ accountId: subscription.accountId, endpoint: subscription.endpoint, ...subscription.keys });

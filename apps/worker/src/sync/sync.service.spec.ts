@@ -113,10 +113,24 @@ describe('SyncService', () => {
     const failed = await prisma.backfillEvent.findFirstOrThrow({ where: { accountId: account.id } });
     expect(failed).toMatchObject({ dispatchStatus: 'failed', attempts: 1, lastError: 'redis unavailable', dispatchedAt: null });
 
-    await new ReportRebuildDispatcher(store, queue).dispatchPending();
+    await prisma.report.create({ data: {
+      accountId: account.id, reportType: 'daily', periodStart: new Date(`${capturedDate}T00:00:00+08:00`),
+      periodEnd: new Date(`${capturedDate}T23:59:59.999+08:00`), version: 2, status: 'awaiting_data', missingDates: [capturedDate],
+    } });
+    await Promise.all([
+      new ReportRebuildDispatcher(new PrismaAffectedReportStore(prisma), queue).dispatchPending(),
+      new ReportRebuildDispatcher(new PrismaAffectedReportStore(prisma), queue).dispatchPending(),
+    ]);
     const recovered = await prisma.backfillEvent.findUniqueOrThrow({ where: { id: failed.id } });
     expect(recovered).toMatchObject({ dispatchStatus: 'dispatched', attempts: 2, lastError: null });
     expect(recovered.dispatchedAt).not.toBeNull();
+    await prisma.report.create({ data: {
+      accountId: account.id, reportType: 'daily', periodStart: new Date(`${capturedDate}T00:00:00+08:00`),
+      periodEnd: new Date(`${capturedDate}T23:59:59.999+08:00`), version: 3, status: 'awaiting_data', missingDates: [capturedDate],
+    } });
+    await prisma.backfillEvent.update({ where: { id: failed.id }, data: {
+      dispatchStatus: 'processing', claimToken: 'crashed-worker', claimedAt: new Date(Date.now() - 10 * 60_000), dispatchedAt: null,
+    } });
     await new ReportRebuildDispatcher(store, queue).dispatchPending();
     expect(await queue.count()).toBe(1);
     await queue.close();

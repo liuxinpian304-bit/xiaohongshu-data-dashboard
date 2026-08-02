@@ -77,9 +77,9 @@ describe('reportJobsForTick', () => {
     await queue.obliterate({ force: true });
     const dispatcher = new ReportRebuildDispatcher({
       findAffectedReports: async () => [
-        { id: 'daily-v1', accountId: 'account-1', type: 'daily', periodEnd: new Date('2026-08-01T15:59:59.999Z') },
-        { id: 'weekly-v1', accountId: 'account-1', type: 'weekly', periodEnd: new Date('2026-08-02T15:59:59.999Z') },
-        { id: 'monthly-v1', accountId: 'account-1', type: 'monthly', periodEnd: new Date('2026-08-31T15:59:59.999Z') },
+        { id: 'daily-v1', accountId: 'account-1', type: 'daily', periodStart: new Date('2026-07-31T16:00:00Z'), periodEnd: new Date('2026-08-01T15:59:59.999Z') },
+        { id: 'weekly-v1', accountId: 'account-1', type: 'weekly', periodStart: new Date('2026-07-26T16:00:00Z'), periodEnd: new Date('2026-08-02T15:59:59.999Z') },
+        { id: 'monthly-v1', accountId: 'account-1', type: 'monthly', periodStart: new Date('2026-07-31T16:00:00Z'), periodEnd: new Date('2026-08-31T15:59:59.999Z') },
       ],
     }, queue);
 
@@ -112,8 +112,8 @@ describe('reportJobsForTick', () => {
     const queue = createReportQueue(); resources.push(queue); await queue.obliterate({ force: true });
     let first = true;
     const store = {
-      findAffectedReports: async () => [{ id: 'daily-v1', accountId: 'account-1', type: 'daily' as const, periodEnd: new Date('2026-08-01T15:59:59.999Z') }],
-      listPendingEvents: async () => [{ backfillId: 'backfill-retry', accountId: 'account-1', noteId: 'note-1', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' }],
+      findAffectedReports: async () => [{ id: 'daily-v1', accountId: 'account-1', type: 'daily' as const, periodStart: new Date('2026-07-31T16:00:00Z'), periodEnd: new Date('2026-08-01T15:59:59.999Z') }],
+      claimPendingEvents: async () => [{ backfillId: 'backfill-retry', accountId: 'account-1', noteId: 'note-1', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' }],
       markDispatchFailed: async () => {}, markDispatched: async () => {},
     };
     const failingQueue = { add: async (...args: Parameters<typeof queue.add>) => {
@@ -121,9 +121,32 @@ describe('reportJobsForTick', () => {
       return queue.add(...args);
     } };
     const dispatcher = new ReportRebuildDispatcher(store, failingQueue as never);
-    await expect(dispatcher.handle((await store.listPendingEvents())[0]!)).resolves.toBeUndefined();
+    await expect(dispatcher.handle((await store.claimPendingEvents())[0]!)).resolves.toBeUndefined();
     await dispatcher.dispatchPending();
     await dispatcher.dispatchPending();
     expect(await queue.count()).toBe(1);
+  });
+
+  it('isolates per-event state write failures and continues the claimed batch', async () => {
+    const handled: string[] = []; const errors: unknown[] = [];
+    const events = ['first', 'second'].map((backfillId) => ({ backfillId, accountId: 'a', noteId: 'n', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' }));
+    const dispatcher = new ReportRebuildDispatcher({
+      claimPendingEvents: async () => events,
+      findAffectedReports: async () => [],
+      markDispatched: async (id) => { handled.push(id); if (id === 'first') throw new Error('state write failed'); },
+      markDispatchFailed: async () => { throw new Error('failure write failed'); },
+    }, { add: async () => ({}) } as never, (entry) => errors.push(entry));
+    await expect(dispatcher.dispatchPending()).resolves.toBeUndefined();
+    expect(handled).toEqual(['first', 'second']);
+    expect(errors).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'outbox_event_failed', backfillId: 'first' })]));
+  });
+
+  it('logs a structured top-level claim failure and resolves for the next interval', async () => {
+    const errors: unknown[] = [];
+    const dispatcher = new ReportRebuildDispatcher({
+      claimPendingEvents: async () => { throw new Error('database unavailable'); }, findAffectedReports: async () => [],
+    }, { add: async () => ({}) } as never, (entry) => errors.push(entry));
+    await expect(dispatcher.dispatchPending()).resolves.toBeUndefined();
+    expect(errors).toEqual([{ service: 'worker', component: 'report-rebuild-outbox', event: 'claim_failed', error: 'database unavailable' }]);
   });
 });

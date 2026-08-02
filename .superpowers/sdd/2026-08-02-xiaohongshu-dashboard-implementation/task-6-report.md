@@ -86,3 +86,26 @@
 - `pnpm build`：API、Worker、Web 全部通过。
 - PostgreSQL 18：迁移 `0004_backfill_outbox` 应用成功；`prisma migrate status` 报 6 migrations、schema up to date。
 - `git diff --check`：通过。
+
+## Fix round 3（2026-08-02）
+
+### 修复结果
+
+- 重算 job ID 改为 `backfillId + accountId + report type + periodStart + periodEnd` 的稳定 SHA-256 scope 摘要，不再依赖可变化的 `report.id`，且保持 BullMQ 要求的无冒号格式。
+- outbox 扫描使用 PostgreSQL `FOR UPDATE SKIP LOCKED` 原子 claim，事件进入 `processing` 并记录 `claimToken/claimedAt`；两个 worker 或重叠 tick 不能同时取得同一事件。
+- processing lease 为 5 分钟；worker 崩溃后过期 claim 可被下一轮回收。成功写 dispatched，失败写 failed；状态更新受 claim token 约束。
+- claim 查询错误在顶层转换为 `report-rebuild-outbox/claim_failed` 结构化日志并正常返回。批内逐事件隔离，派发或状态持久化错误不会阻断后续事件。
+
+### RED 证据
+
+- `pnpm --filter worker test -- report.scheduler.spec.ts sync.service.spec.ts`：3 个失败；旧 scanner 不调用原子 claim，因此重试 job 数为 0、首事件/第二事件均未处理、claim failure 无结构化日志。
+
+### GREEN / 最终验证
+
+- `report.scheduler.spec.ts`：12/12；覆盖批内状态写失败隔离与顶层 claim failure。
+- `sync.service.spec.ts`：9/9；真实 PostgreSQL/Redis 覆盖双 dispatcher 并发 claim、首次失败恢复、processing lease 回收，以及同 backfill/scope 从 v2 到 v3 仍仅一个 job。
+- `pnpm --filter worker test`：7 个文件，43/43 通过。
+- `pnpm --filter worker typecheck`：通过。
+- `pnpm build`：API、Worker、Web 全部通过。
+- PostgreSQL 18：`0005_backfill_outbox_claim` 已应用；`prisma migrate status` 报 7 migrations、schema up to date。
+- `git diff --check`：通过。

@@ -2,6 +2,7 @@ import type { Queue } from 'bullmq';
 import type { JobsOptions } from 'bullmq';
 import type { ReportType } from '@xhs/domain';
 import type { DatabaseClient } from '@xhs/database';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { ReportJobData, ReportJobName } from './report.processor';
 
@@ -41,6 +42,7 @@ export interface AffectedReport {
   id: string;
   accountId: string;
   type: ReportType;
+  periodStart: Date;
   periodEnd: Date;
 }
 
@@ -50,13 +52,14 @@ export interface BackfillCommittedEvent {
   noteId: string;
   capturedDates: string[];
   reason: string;
+  claimToken?: string;
 }
 
 export interface AffectedReportStore {
   findAffectedReports(event: BackfillCommittedEvent): Promise<AffectedReport[]>;
-  listPendingEvents?(): Promise<BackfillCommittedEvent[]>;
-  markDispatched?(backfillId: string): Promise<void>;
-  markDispatchFailed?(backfillId: string, error: string): Promise<void>;
+  claimPendingEvents?(claimToken?: string, now?: Date): Promise<BackfillCommittedEvent[]>;
+  markDispatched?(backfillId: string, claimToken?: string): Promise<void>;
+  markDispatchFailed?(backfillId: string, error: string, claimToken?: string): Promise<void>;
 }
 
 export class PrismaAffectedReportStore implements AffectedReportStore {
@@ -81,21 +84,35 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
     return affected;
   }
 
-  async listPendingEvents() {
-    return (await this.db.backfillEvent.findMany({ where: { dispatchStatus: { in: ['pending', 'failed'] } }, orderBy: { createdAt: 'asc' } }))
-      .map((event) => ({ backfillId: event.id, accountId: event.accountId, noteId: event.noteId, capturedDates: event.capturedDates, reason: event.reason }));
+  async claimPendingEvents(claimToken = randomUUID(), now = new Date()) {
+    const leaseExpiredAt = new Date(now.getTime() - 5 * 60_000);
+    const events = await this.db.$queryRaw<Array<{ id: string; accountId: string; noteId: string; capturedDates: string[]; reason: string }>>`
+      UPDATE "BackfillEvent" SET "dispatchStatus" = 'processing', "claimToken" = ${claimToken}, "claimedAt" = ${now}
+      WHERE id IN (
+        SELECT id FROM "BackfillEvent"
+        WHERE "dispatchStatus" IN ('pending', 'failed') OR ("dispatchStatus" = 'processing' AND "claimedAt" < ${leaseExpiredAt})
+        ORDER BY "createdAt" ASC FOR UPDATE SKIP LOCKED LIMIT 100
+      )
+      RETURNING id, "accountId", "noteId", "capturedDates", reason
+    `;
+    return events.map((event) => ({ backfillId: event.id, accountId: event.accountId, noteId: event.noteId, capturedDates: event.capturedDates, reason: event.reason, claimToken }));
   }
-  async markDispatched(backfillId: string) { await this.db.backfillEvent.update({ where: { id: backfillId }, data: { dispatchStatus: 'dispatched', dispatchedAt: new Date(), attempts: { increment: 1 }, lastError: null } }); }
-  async markDispatchFailed(backfillId: string, error: string) { await this.db.backfillEvent.update({ where: { id: backfillId }, data: { dispatchStatus: 'failed', attempts: { increment: 1 }, lastError: error } }); }
+  async markDispatched(backfillId: string, claimToken?: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'dispatched', dispatchedAt: new Date(), attempts: { increment: 1 }, lastError: null, claimToken: null, claimedAt: null }); }
+  async markDispatchFailed(backfillId: string, error: string, claimToken?: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'failed', attempts: { increment: 1 }, lastError: error, claimToken: null, claimedAt: null }); }
+  private async updateDispatch(backfillId: string, claimToken: string | undefined, data: Parameters<DatabaseClient['backfillEvent']['update']>[0]['data']) {
+    if (claimToken) await this.db.backfillEvent.updateMany({ where: { id: backfillId, claimToken, dispatchStatus: 'processing' }, data });
+    else await this.db.backfillEvent.update({ where: { id: backfillId }, data });
+  }
 }
 
 export class ReportRebuildDispatcher {
-  constructor(private readonly store: AffectedReportStore, private readonly queue: Queue<ReportJobData>) {}
+  constructor(private readonly store: AffectedReportStore, private readonly queue: Queue<ReportJobData>, private readonly logError: (entry: unknown) => void = (entry) => console.error(JSON.stringify(entry))) {}
 
   async handle(event: BackfillCommittedEvent) {
     try {
       for (const report of await this.store.findAffectedReports(event)) {
-        const jobId = `report-rebuild-${report.type}-${event.backfillId}-${report.id}`;
+        const scope = `${event.backfillId}\0${report.accountId}\0${report.type}\0${report.periodStart.toISOString()}\0${report.periodEnd.toISOString()}`;
+        const jobId = `report-rebuild-${createHash('sha256').update(scope).digest('hex').slice(0, 32)}`;
         await this.queue.add('rebuild-report', {
         type: report.type,
         now: new Date(report.periodEnd.getTime() + 1).toISOString(),
@@ -105,13 +122,21 @@ export class ReportRebuildDispatcher {
         rebuildReason: event.reason,
         }, reportJobOptions(jobId));
       }
-      await this.store.markDispatched?.(event.backfillId);
+      await this.store.markDispatched?.(event.backfillId, event.claimToken);
     } catch (error) {
-      await this.store.markDispatchFailed?.(event.backfillId, error instanceof Error ? error.message : String(error));
+      await this.store.markDispatchFailed?.(event.backfillId, error instanceof Error ? error.message : String(error), event.claimToken);
     }
   }
 
-  async dispatchPending() { for (const event of await this.store.listPendingEvents?.() ?? []) await this.handle(event); }
+  async dispatchPending() {
+    let events: BackfillCommittedEvent[];
+    try { events = await this.store.claimPendingEvents?.(randomUUID(), new Date()) ?? []; }
+    catch (error) { this.logError(outboxError('claim_failed', error)); return; }
+    for (const event of events) {
+      try { await this.handle(event); }
+      catch (error) { this.logError({ ...outboxError('outbox_event_failed', error), backfillId: event.backfillId }); }
+    }
+  }
 }
 
 export function startReportScheduler(queue: Queue<ReportJobData>, dispatcher?: ReportRebuildDispatcher) {
@@ -138,6 +163,10 @@ export async function runScheduledReportTick(
 
 function job(name: ReportJobName, type: string, date: string): ScheduledReportJob {
   return { name, jobId: `report-${type}-${date}` };
+}
+
+function outboxError(event: string, error: unknown) {
+  return { service: 'worker', component: 'report-rebuild-outbox', event, error: error instanceof Error ? error.message : String(error) };
 }
 
 function shanghaiParts(now: Date) {

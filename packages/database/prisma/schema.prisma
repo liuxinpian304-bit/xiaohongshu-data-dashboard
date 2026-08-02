@@ -231,6 +231,8 @@ model BackfillEvent {
   attempts      Int      @default(0)
   lastError     String?
   dispatchedAt  DateTime? @db.Timestamptz(3)
+  claimedAt     DateTime? @db.Timestamptz(3)
+  claimToken    String?
   createdAt     DateTime @default(now()) @db.Timestamptz(3)
   account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
 

@@ -6,6 +6,8 @@ function storeWithSnapshots(snapshotDates: string[]): ReportStore {
   const versions: Array<{ version: number; status: string }> = [];
   return {
     listAccountIds: async () => ['account-1'],
+    listNoteIds: async () => ['note-1'],
+    listRequiredMetricDefinitionIds: async () => ['views'],
     loadCumulativeMetrics: async () => snapshotDates.map((capturedAt, index) => ({
       metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date(capturedAt), value: 100 + index * 25,
     })),
@@ -55,6 +57,8 @@ describe('ReportService', () => {
     let savedMetrics: Array<{ metricDefinitionId: string; value: number }> = [];
     const store: ReportStore = {
       listAccountIds: async () => ['account-1'],
+      listNoteIds: async () => ['note-a', 'note-b'],
+      listRequiredMetricDefinitionIds: async () => ['views'],
       loadCumulativeMetrics: async () => [
         { metricDefinitionId: 'views', noteId: 'note-a', capturedAt: new Date('2026-08-01T00:15:00+08:00'), value: 100 },
         { metricDefinitionId: 'views', noteId: 'note-b', capturedAt: new Date('2026-08-01T00:20:00+08:00'), value: 1_000 },
@@ -70,5 +74,82 @@ describe('ReportService', () => {
     await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
 
     expect(savedMetrics).toEqual([{ metricDefinitionId: 'views', value: 80 }]);
+  });
+
+  it('reports a likes series that is entirely absent for an account note', async () => {
+    const store: ReportStore = {
+      listAccountIds: async () => ['account-1'],
+      listNoteIds: async () => ['note-1'],
+      listRequiredMetricDefinitionIds: async () => ['views', 'likes'],
+      loadCumulativeMetrics: async () => [
+        { metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date('2026-08-01T00:15:00+08:00'), value: 100 },
+        { metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date('2026-08-01T23:45:00+08:00'), value: 120 },
+      ],
+      createVersion: async (input) => ({ accountId: input.accountId, version: 1, status: input.status }),
+    };
+
+    const report = await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
+
+    expect(report.missingFields).toEqual([
+      { noteId: 'note-1', metricDefinitionId: 'likes', date: '2026-08-01' },
+    ]);
+    expect(report.missingDates).toEqual(['2026-08-01']);
+    expect(report.status).toBe('awaiting_data');
+  });
+
+  it('records the exact missing day for a partially populated weekly series', async () => {
+    const dates = ['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-31', '2026-08-01', '2026-08-02'];
+    const store: ReportStore = {
+      listAccountIds: async () => ['account-1'],
+      listNoteIds: async () => ['note-1'],
+      listRequiredMetricDefinitionIds: async () => ['likes'],
+      loadCumulativeMetrics: async () => dates.flatMap((date, index) => [
+        { metricDefinitionId: 'likes', noteId: 'note-1', capturedAt: new Date(`${date}T00:15:00+08:00`), value: index * 10 },
+        { metricDefinitionId: 'likes', noteId: 'note-1', capturedAt: new Date(`${date}T23:45:00+08:00`), value: index * 10 + 1 },
+      ]),
+      createVersion: async (input) => ({ accountId: input.accountId, version: 1, status: input.status }),
+    };
+
+    const report = await new ReportService(store).generateReport('weekly', new Date('2026-08-03T08:00:00+08:00'));
+
+    expect(report.missingFields).toEqual([
+      { noteId: 'note-1', metricDefinitionId: 'likes', date: '2026-07-30' },
+    ]);
+  });
+
+  it('accepts one daily snapshot per matrix cell when a weekly series has first and last points', async () => {
+    const dates = ['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31', '2026-08-01', '2026-08-02'];
+    const store: ReportStore = {
+      listAccountIds: async () => ['account-1'], listNoteIds: async () => ['note-1'],
+      listRequiredMetricDefinitionIds: async () => ['views'],
+      loadCumulativeMetrics: async () => dates.map((date, value) => ({
+        metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date(`${date}T12:00:00+08:00`), value,
+      })),
+      createVersion: async (input) => ({ accountId: input.accountId, version: 1, status: input.status }),
+    };
+
+    const report = await new ReportService(store).generateReport('weekly', new Date('2026-08-03T08:00:00+08:00'));
+
+    expect(report.status).toBe('complete');
+    expect(report.missingFields).toEqual([]);
+  });
+
+  it('persists rebuild audit context on the new report version', async () => {
+    let saved: Parameters<ReportStore['createVersion']>[0] | undefined;
+    const store = storeWithSnapshots(['2026-08-01T00:15:00+08:00', '2026-08-01T23:45:00+08:00']);
+    store.createVersion = async (input) => {
+      saved = input;
+      return { accountId: input.accountId, version: 2, status: input.status };
+    };
+
+    await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'), {
+      accountId: 'account-1', backfillId: 'backfill-42', rebuildJobId: 'report-rebuild-daily-backfill-42',
+      previousReportId: 'report-v1', rebuildReason: 'metric_snapshot_backfilled',
+    });
+
+    expect(saved).toMatchObject({
+      backfillId: 'backfill-42', rebuildJobId: 'report-rebuild-daily-backfill-42',
+      previousReportId: 'report-v1', rebuildReason: 'metric_snapshot_backfilled',
+    });
   });
 });

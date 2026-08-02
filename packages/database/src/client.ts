@@ -6,8 +6,10 @@ const connectionString =
   process.env.DATABASE_URL ??
   'postgresql://postgres:postgres@localhost:55432/xhs_dashboard';
 
-const adapter = new PrismaPg({ connectionString });
+export function createDatabaseClient(url: string) {
+  return new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+}
 
-export const prisma = new PrismaClient({ adapter });
+export const prisma = createDatabaseClient(connectionString);
 export type DatabaseClient = PrismaClient;
 export type TransactionClient = Prisma.TransactionClient;

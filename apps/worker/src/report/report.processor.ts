@@ -6,12 +6,25 @@ import type { ReportResult, ReportService } from './report.service';
 
 export const REPORT_QUEUE = 'reports';
 export type ReportJobName = 'generate-daily-report' | 'generate-weekly-report' | 'generate-monthly-report' | 'rebuild-report';
-export interface ReportJobData { now: string; type?: ReportType }
+export interface ReportJobData {
+  now: string;
+  type?: ReportType;
+  accountId?: string;
+  backfillId?: string;
+  previousReportId?: string;
+  rebuildReason?: string;
+}
 
 export function createReportQueue() { return new Queue<ReportJobData>(REPORT_QUEUE, { connection: redisConnection() }); }
 
 export function processReportJob(service: ReportService, job: Job<ReportJobData, ReportResult, ReportJobName>) {
-  return service.generateReport(reportType(job), new Date(job.data.now));
+  return service.generateReport(reportType(job), new Date(job.data.now), {
+    accountId: job.data.accountId,
+    backfillId: job.data.backfillId,
+    rebuildJobId: job.id,
+    previousReportId: job.data.previousReportId,
+    rebuildReason: job.data.rebuildReason,
+  });
 }
 
 export function createReportWorker(service: ReportService) {

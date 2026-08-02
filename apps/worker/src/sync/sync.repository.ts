@@ -1,11 +1,16 @@
 import type { Comment, ConnectorCapabilities, Note, NoteMetric, Reply } from '@xhs/connector';
 import type { DatabaseClient, TransactionClient } from '@xhs/database';
+import { createHash } from 'node:crypto';
 
 export type SyncStage = 'authorize' | 'notes' | 'metrics' | 'comments' | 'replies' | 'complete';
 export type CommentCompletenessStatus = 'partial' | 'page_complete' | 'failed' | 'authorization_required' | 'unverifiable';
+export interface MetricBackfillEvent { backfillId: string; accountId: string; noteId: string; capturedDates: string[]; reason: string }
 
 export class SyncRepository {
-  constructor(private readonly db: DatabaseClient) {}
+  constructor(
+    private readonly db: DatabaseClient,
+    private readonly onMetricSnapshotsCommitted?: (event: MetricBackfillEvent) => Promise<void>,
+  ) {}
 
   async startJob(externalJobId: string, accountId: string) {
     return this.db.syncJob.upsert({
@@ -55,8 +60,10 @@ export class SyncRepository {
   }
 
   async saveMetrics(jobId: string, connectorType: string, notePlatformId: string, metrics: NoteMetric[]) {
-    await this.db.$transaction(async (tx) => {
+    const event = await this.db.$transaction(async (tx) => {
       const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
+      const capturedDates = backfillBusinessDates(metrics);
+      const backfillId = createHash('sha256').update(`${jobId}\0${note.id}\0${capturedDates.join(',')}`).digest('hex').slice(0, 32);
       const definitions = [
         ['views', '浏览量'], ['likes', '点赞量'], ['comments', '评论量'],
       ] as const;
@@ -73,7 +80,14 @@ export class SyncRepository {
         }
       }
       await this.upsertCheckpoint(tx, jobId, 'metrics', notePlatformId, null);
+      await tx.backfillEvent.upsert({
+        where: { id: backfillId },
+        create: { id: backfillId, accountId: note.accountId, noteId: note.id, capturedDates },
+        update: {},
+      });
+      return { backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason: 'metric_snapshot_saved' };
     });
+    await this.onMetricSnapshotsCommitted?.(event);
   }
 
   async saveCommentsPage(jobId: string, accountId: string, connectorType: string, notePlatformId: string, comments: Comment[], nextCursor: string | null, unverifiable = false) {
@@ -176,4 +190,11 @@ export class SyncRepository {
       data: { status: 'failed', verificationStatus: 'unverifiable', error: reason },
     });
   }
+}
+
+export function backfillBusinessDates(metrics: ReadonlyArray<{ capturedAt: string }>) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  return [...new Set(metrics.map((metric) => formatter.format(new Date(metric.capturedAt))))].sort();
 }

@@ -36,6 +36,7 @@ model Account {
   reports                 Report[]
   notifications           Notification[]
   commentSyncCompleteness CommentSyncCompleteness[]
+  backfillEvents          BackfillEvent[]
 
   @@unique([connectorType, platformId])
 }
@@ -186,20 +187,26 @@ model SyncStep {
 }
 
 model Report {
-  id          String         @id @default(uuid()) @db.Uuid
-  accountId   String         @db.Uuid
-  reportType  String
-  periodStart DateTime       @db.Timestamptz(3)
-  periodEnd   DateTime       @db.Timestamptz(3)
-  version      Int            @default(1)
-  status       String         @default("complete")
-  missingDates String[]       @default([])
-  generatedAt DateTime       @default(now()) @db.Timestamptz(3)
-  account     Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  metrics     ReportMetric[]
+  id               String         @id @default(uuid()) @db.Uuid
+  accountId        String         @db.Uuid
+  reportType       String
+  periodStart      DateTime       @db.Timestamptz(3)
+  periodEnd        DateTime       @db.Timestamptz(3)
+  version          Int            @default(1)
+  status           String         @default("complete")
+  missingDates     String[]       @default([])
+  missingFields    Json           @default("[]")
+  backfillId       String?
+  rebuildJobId     String?
+  previousReportId String?        @db.Uuid
+  rebuildReason    String?
+  generatedAt      DateTime       @default(now()) @db.Timestamptz(3)
+  account          Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  metrics          ReportMetric[]
 
   @@unique([accountId, reportType, periodStart, periodEnd, version])
   @@index([accountId, reportType, periodStart, periodEnd])
+  @@index([backfillId])
 }
 
 model ReportMetric {
@@ -212,6 +219,18 @@ model ReportMetric {
   metricDefinition   MetricDefinition   @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
 
   @@unique([reportId, metricDefinitionId])
+}
+
+model BackfillEvent {
+  id            String   @id
+  accountId     String   @db.Uuid
+  noteId        String   @db.Uuid
+  capturedDates String[]
+  reason        String   @default("metric_snapshot_saved")
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
 }
 
 model Notification {

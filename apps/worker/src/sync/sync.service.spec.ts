@@ -79,6 +79,20 @@ describe('SyncService', () => {
     expect(await repository.countComments('note-1')).toBe(12);
   });
 
+  it('publishes a persistent backfill event only after metric snapshots commit', async () => {
+    const observed: string[] = [];
+    const eventRepository = new SyncRepository(prisma, async (event) => {
+      const persisted = await prisma.backfillEvent.findUnique({ where: { id: event.backfillId } });
+      if (persisted) observed.push(event.backfillId);
+    });
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
+
+    await new SyncService(new MockXhsConnector(), eventRepository).runAccountSync('job-backfill', account.id);
+
+    expect(observed.length).toBeGreaterThan(0);
+    expect(await prisma.backfillEvent.count({ where: { id: { in: observed } } })).toBe(observed.length);
+  });
+
   it('marks a job unverifiable and stops when the connector repeats a cursor', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
     const inner = new MockXhsConnector();

@@ -109,3 +109,22 @@
 - `pnpm build`：API、Worker、Web 全部通过。
 - PostgreSQL 18：`0005_backfill_outbox_claim` 已应用；`prisma migrate status` 报 7 migrations、schema up to date。
 - `git diff --check`：通过。
+
+## Fix round 4（2026-08-02）
+
+### 修复结果
+
+- outbox 的 `dispatched/failed` 终态写入现在必须携带 claim token，并且仅匹配 `id + claimToken + processing`；无 token、错误 token 和已被回收的 stale token 都不能覆盖当前 owner。
+- `BackfillCommittedEvent` 与 `ClaimedBackfillEvent` 分离，`handle` 仅接受已 claim 事件，状态存储接口的 claim token 改为必填。
+- 事务提交后 hook 不再直接派发未 claim 事件，而是立即唤醒 `dispatchPending`，保留即时派发体验，同时强制先原子 claim 再派发。
+
+### RED 证据
+
+- `pnpm --filter worker test -- sync.service.spec.ts`：owner 保护用例失败，期望事件保持 `processing/current-owner/attempts=0`，实际无 token 调用将其改为 `dispatched/claimToken=null/attempts=1`，证明捕获了无条件覆盖。
+
+### GREEN / 最终验证
+
+- `pnpm --filter worker test`：7 个文件，45/45 通过；新增真实 PostgreSQL 用例覆盖无 token、错误 token 和 lease 回收后 stale owner 无法改写。
+- `pnpm --filter worker typecheck`：通过。
+- `pnpm build`：API、Worker、Web 全部构建通过。
+- PostgreSQL 18：`prisma migrate status` 报 7 migrations，database schema up to date。

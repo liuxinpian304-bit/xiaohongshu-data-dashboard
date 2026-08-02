@@ -85,7 +85,7 @@ describe('reportJobsForTick', () => {
 
     await dispatcher.handle({
       backfillId: 'backfill-42', accountId: 'account-1', noteId: 'note-1',
-      capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved',
+      capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved', claimToken: 'owner-42',
     });
 
     const jobs = await queue.getJobs();
@@ -113,7 +113,7 @@ describe('reportJobsForTick', () => {
     let first = true;
     const store = {
       findAffectedReports: async () => [{ id: 'daily-v1', accountId: 'account-1', type: 'daily' as const, periodStart: new Date('2026-07-31T16:00:00Z'), periodEnd: new Date('2026-08-01T15:59:59.999Z') }],
-      claimPendingEvents: async () => [{ backfillId: 'backfill-retry', accountId: 'account-1', noteId: 'note-1', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' }],
+      claimPendingEvents: async () => [{ backfillId: 'backfill-retry', accountId: 'account-1', noteId: 'note-1', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved', claimToken: 'retry-owner' }],
       markDispatchFailed: async () => {}, markDispatched: async () => {},
     };
     const failingQueue = { add: async (...args: Parameters<typeof queue.add>) => {
@@ -129,7 +129,7 @@ describe('reportJobsForTick', () => {
 
   it('isolates per-event state write failures and continues the claimed batch', async () => {
     const handled: string[] = []; const errors: unknown[] = [];
-    const events = ['first', 'second'].map((backfillId) => ({ backfillId, accountId: 'a', noteId: 'n', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' }));
+    const events = ['first', 'second'].map((backfillId) => ({ backfillId, accountId: 'a', noteId: 'n', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved', claimToken: 'batch-owner' }));
     const dispatcher = new ReportRebuildDispatcher({
       claimPendingEvents: async () => events,
       findAffectedReports: async () => [],

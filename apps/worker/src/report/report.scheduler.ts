@@ -52,14 +52,15 @@ export interface BackfillCommittedEvent {
   noteId: string;
   capturedDates: string[];
   reason: string;
-  claimToken?: string;
 }
+
+export interface ClaimedBackfillEvent extends BackfillCommittedEvent { claimToken: string }
 
 export interface AffectedReportStore {
   findAffectedReports(event: BackfillCommittedEvent): Promise<AffectedReport[]>;
-  claimPendingEvents?(claimToken?: string, now?: Date): Promise<BackfillCommittedEvent[]>;
-  markDispatched?(backfillId: string, claimToken?: string): Promise<void>;
-  markDispatchFailed?(backfillId: string, error: string, claimToken?: string): Promise<void>;
+  claimPendingEvents?(claimToken?: string, now?: Date): Promise<ClaimedBackfillEvent[]>;
+  markDispatched?(backfillId: string, claimToken: string): Promise<void>;
+  markDispatchFailed?(backfillId: string, error: string, claimToken: string): Promise<void>;
 }
 
 export class PrismaAffectedReportStore implements AffectedReportStore {
@@ -84,7 +85,7 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
     return affected;
   }
 
-  async claimPendingEvents(claimToken = randomUUID(), now = new Date()) {
+  async claimPendingEvents(claimToken: string = randomUUID(), now = new Date()) {
     const leaseExpiredAt = new Date(now.getTime() - 5 * 60_000);
     const events = await this.db.$queryRaw<Array<{ id: string; accountId: string; noteId: string; capturedDates: string[]; reason: string }>>`
       UPDATE "BackfillEvent" SET "dispatchStatus" = 'processing', "claimToken" = ${claimToken}, "claimedAt" = ${now}
@@ -97,18 +98,18 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
     `;
     return events.map((event) => ({ backfillId: event.id, accountId: event.accountId, noteId: event.noteId, capturedDates: event.capturedDates, reason: event.reason, claimToken }));
   }
-  async markDispatched(backfillId: string, claimToken?: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'dispatched', dispatchedAt: new Date(), attempts: { increment: 1 }, lastError: null, claimToken: null, claimedAt: null }); }
-  async markDispatchFailed(backfillId: string, error: string, claimToken?: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'failed', attempts: { increment: 1 }, lastError: error, claimToken: null, claimedAt: null }); }
-  private async updateDispatch(backfillId: string, claimToken: string | undefined, data: Parameters<DatabaseClient['backfillEvent']['update']>[0]['data']) {
-    if (claimToken) await this.db.backfillEvent.updateMany({ where: { id: backfillId, claimToken, dispatchStatus: 'processing' }, data });
-    else await this.db.backfillEvent.update({ where: { id: backfillId }, data });
+  async markDispatched(backfillId: string, claimToken: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'dispatched', dispatchedAt: new Date(), attempts: { increment: 1 }, lastError: null, claimToken: null, claimedAt: null }); }
+  async markDispatchFailed(backfillId: string, error: string, claimToken: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'failed', attempts: { increment: 1 }, lastError: error, claimToken: null, claimedAt: null }); }
+  private async updateDispatch(backfillId: string, claimToken: string, data: Parameters<DatabaseClient['backfillEvent']['updateMany']>[0]['data']) {
+    if (!claimToken) return;
+    await this.db.backfillEvent.updateMany({ where: { id: backfillId, claimToken, dispatchStatus: 'processing' }, data });
   }
 }
 
 export class ReportRebuildDispatcher {
   constructor(private readonly store: AffectedReportStore, private readonly queue: Queue<ReportJobData>, private readonly logError: (entry: unknown) => void = (entry) => console.error(JSON.stringify(entry))) {}
 
-  async handle(event: BackfillCommittedEvent) {
+  async handle(event: ClaimedBackfillEvent) {
     try {
       for (const report of await this.store.findAffectedReports(event)) {
         const scope = `${event.backfillId}\0${report.accountId}\0${report.type}\0${report.periodStart.toISOString()}\0${report.periodEnd.toISOString()}`;
@@ -129,7 +130,7 @@ export class ReportRebuildDispatcher {
   }
 
   async dispatchPending() {
-    let events: BackfillCommittedEvent[];
+    let events: ClaimedBackfillEvent[];
     try { events = await this.store.claimPendingEvents?.(randomUUID(), new Date()) ?? []; }
     catch (error) { this.logError(outboxError('claim_failed', error)); return; }
     for (const event of events) {

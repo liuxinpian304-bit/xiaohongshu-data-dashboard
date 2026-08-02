@@ -11,7 +11,7 @@ import { SyncService } from './sync/sync.service';
 export function startWorker() {
   const reportQueue = createReportQueue();
   const rebuildDispatcher = new ReportRebuildDispatcher(new PrismaAffectedReportStore(prisma), reportQueue);
-  const service = new SyncService(new MockXhsConnector(), new SyncRepository(prisma, (event) => rebuildDispatcher.handle(event)));
+  const service = new SyncService(new MockXhsConnector(), new SyncRepository(prisma, () => rebuildDispatcher.dispatchPending()));
   const syncWorker = createSyncWorker(service);
   const reportWorker = createReportWorker(new ReportService(new PrismaReportStore(prisma)));
   const scheduler = startReportScheduler(reportQueue, rebuildDispatcher);

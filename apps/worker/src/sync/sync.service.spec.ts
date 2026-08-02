@@ -107,7 +107,7 @@ describe('SyncService', () => {
       accountId: account.id, reportType: 'daily', periodStart: new Date(`${capturedDate}T00:00:00+08:00`),
       periodEnd: new Date(`${capturedDate}T23:59:59.999+08:00`), status: 'awaiting_data', missingDates: [capturedDate],
     } });
-    const repository = new SyncRepository(prisma, (event) => failingDispatcher.handle(event));
+    const repository = new SyncRepository(prisma, () => failingDispatcher.dispatchPending());
     await repository.startJob('job-outbox', account.id);
     await expect(repository.saveMetrics('job-outbox', 'mock', note.platformId, metrics)).resolves.toBeUndefined();
     const failed = await prisma.backfillEvent.findFirstOrThrow({ where: { accountId: account.id } });
@@ -134,6 +134,40 @@ describe('SyncService', () => {
     await new ReportRebuildDispatcher(store, queue).dispatchPending();
     expect(await queue.count()).toBe(1);
     await queue.close();
+  });
+
+  it('allows only the current claim owner to complete a processing outbox event', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'claim-owner-account' } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'mock', platformId: 'claim-owner-note', title: 'Claim owner note', publishedAt: new Date('2026-08-01') } });
+    const event = await prisma.backfillEvent.create({ data: {
+      id: 'claim-owner-event', accountId: account.id, noteId: note.id, capturedDates: ['2026-08-01'],
+      dispatchStatus: 'processing', claimToken: 'current-owner', claimedAt: new Date(),
+    } });
+    const store = new PrismaAffectedReportStore(prisma);
+
+    await (store as unknown as { markDispatched(id: string): Promise<void> }).markDispatched(event.id);
+    await store.markDispatchFailed(event.id, 'stale failure', 'wrong-owner');
+
+    expect(await prisma.backfillEvent.findUniqueOrThrow({ where: { id: event.id } })).toMatchObject({
+      dispatchStatus: 'processing', claimToken: 'current-owner', attempts: 0, lastError: null,
+    });
+  });
+
+  it('prevents a stale lease owner from overwriting the dispatcher that reclaimed the event', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'stale-owner-account' } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'mock', platformId: 'stale-owner-note', title: 'Stale owner note', publishedAt: new Date('2026-08-01') } });
+    const event = await prisma.backfillEvent.create({ data: {
+      id: 'stale-owner-event', accountId: account.id, noteId: note.id, capturedDates: ['2026-08-01'],
+      dispatchStatus: 'processing', claimToken: 'stale-owner', claimedAt: new Date('2026-08-01T00:00:00Z'),
+    } });
+    const store = new PrismaAffectedReportStore(prisma);
+    await store.claimPendingEvents('current-owner', new Date('2026-08-01T00:10:00Z'));
+
+    await store.markDispatched(event.id, 'stale-owner');
+
+    expect(await prisma.backfillEvent.findUniqueOrThrow({ where: { id: event.id } })).toMatchObject({
+      dispatchStatus: 'processing', claimToken: 'current-owner', attempts: 0,
+    });
   });
 
   it('marks a job unverifiable and stops when the connector repeats a cursor', async () => {

@@ -1,0 +1,27 @@
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { prisma } from '@xhs/database';
+import { NotFoundException } from '@nestjs/common';
+
+import { NotificationsService, PrismaNotificationsStore } from './notifications.service';
+import { PushEndpointPolicy } from './push-endpoint.policy';
+
+describe('Prisma notifications API store', () => {
+  const service = new NotificationsService(new PrismaNotificationsStore(), new PushEndpointPolicy(['push.example.test'], async () => ['203.0.113.1']));
+  beforeEach(async () => { await prisma.pushSubscription.deleteMany(); await prisma.notification.deleteMany(); await prisma.account.deleteMany(); });
+  afterAll(async () => prisma.$disconnect());
+
+  it('lists all managed-account notifications and persists read state', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'api-notification', platformId: crypto.randomUUID() } });
+    const notification = await prisma.notification.create({ data: { eventId: crypto.randomUUID(), accountId: account.id, type: 'sync_completed', title: '完成', body: '已完成', link: '/sync-jobs/job-1' } });
+    expect(await service.list()).toHaveLength(1);
+    await service.markRead(notification.id);
+    expect((await prisma.notification.findUniqueOrThrow({ where: { id: notification.id } })).readAt).toBeInstanceOf(Date);
+  });
+
+  it('stores a subscription only for an existing managed account', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'api-subscription', platformId: crypto.randomUUID() } });
+    await service.subscribe({ accountId: account.id, endpoint: 'https://push.example.test/sub', keys: { p256dh: 'key', auth: 'auth' } });
+    expect(await prisma.pushSubscription.count({ where: { accountId: account.id } })).toBe(1);
+    await expect(service.subscribe({ accountId: crypto.randomUUID(), endpoint: 'https://push.example.test/sub', keys: { p256dh: 'key', auth: 'auth' } })).rejects.toBeInstanceOf(NotFoundException);
+  });
+});

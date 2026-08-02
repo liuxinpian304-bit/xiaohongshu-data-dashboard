@@ -1,4 +1,4 @@
-import { Worker, type Job } from 'bullmq';
+import { Queue, Worker, type Job } from 'bullmq';
 
 import { redisConnection } from '../queues';
 import type { DomainEvent, NotificationRecord, NotificationService } from './notification.service';
@@ -18,3 +18,5 @@ export function createNotificationWorker(service: NotificationService) {
     { connection: redisConnection(), concurrency: Number(process.env.NOTIFICATION_CONCURRENCY ?? 4) },
   );
 }
+
+export function createNotificationQueue() { return new Queue<NotificationJobData>(NOTIFICATION_QUEUE, { connection: redisConnection() }); }

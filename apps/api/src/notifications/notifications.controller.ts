@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { AdminGuard } from './admin.guard';
 
 import { NotificationsService } from './notifications.service';
 
 @Controller('notifications')
+@UseGuards(AdminGuard)
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
 

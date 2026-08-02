@@ -1,6 +1,7 @@
 import type { Page, XhsConnector } from '@xhs/connector';
 
 import { SyncRepository, type SyncStage } from './sync.repository';
+import type { NotificationEventPublisher, PublishableNotificationEvent } from '../notification/notification.publisher';
 
 export interface SyncResult {
   jobId: string;
@@ -11,7 +12,7 @@ export interface SyncResult {
 const STAGES: SyncStage[] = ['authorize', 'notes', 'metrics', 'comments', 'replies', 'complete'];
 
 export class SyncService {
-  constructor(private readonly connector: XhsConnector, private readonly repository: SyncRepository) {}
+  constructor(private readonly connector: XhsConnector, private readonly repository: SyncRepository, private readonly notifications?: NotificationEventPublisher) {}
 
   async runAccountSync(jobId: string, accountId: string): Promise<SyncResult> {
     const job = await this.repository.startJob(jobId, accountId);
@@ -33,9 +34,11 @@ export class SyncService {
         }
         if (stage === 'complete') await this.repository.complete(jobId);
       }
+      await this.notify({ id: `sync:completed:${jobId}`, type: 'sync_completed', accountId, data: { syncJobId: jobId } });
       return { jobId, accountId, status: 'complete' };
     } catch (error) {
       await this.repository.fail(jobId, error);
+      await this.notify({ id: `sync:${isAuthorizationError(error) ? 'authorization-expired' : 'failed'}:${jobId}`, type: isAuthorizationError(error) ? 'authorization_expired' : 'sync_failed', accountId, data: isAuthorizationError(error) ? {} : { syncJobId: jobId } });
       throw error;
     }
   }
@@ -69,8 +72,12 @@ export class SyncService {
 
   private async comments(jobId: string, accountId: string) {
     const notes = await this.repository.notes(accountId);
+    const notifyNewComments = await this.repository.hasCompletedSyncBefore(accountId, jobId);
     if (!(await this.repository.commentsCapabilityEnabled(accountId))) {
-      await Promise.all(notes.map((note) => this.repository.markCommentIncomplete(note.connectorType, accountId, note.platformId, 'authorization_required')));
+      await Promise.all(notes.map(async (note) => {
+        await this.repository.markCommentIncomplete(note.connectorType, accountId, note.platformId, 'authorization_required');
+        await this.notify({ id: `comment-sync-incomplete:${jobId}:${note.platformId}:authorization`, type: 'comment_sync_incomplete', accountId, data: { noteId: note.platformId } });
+      }));
       await this.repository.advance(jobId, 'replies');
       return true;
     }
@@ -82,7 +89,11 @@ export class SyncService {
         ok = await this.paginate(
           checkpoint?.cursor ?? null,
           (cursor) => this.connector.listComments({ noteId: note.platformId, cursor }),
-          (items, cursor, repeated) => this.repository.saveCommentsPage(jobId, accountId, note.connectorType, note.platformId, items, cursor, repeated),
+          async (items, cursor, repeated) => {
+            const created = await this.repository.saveCommentsPage(jobId, accountId, note.connectorType, note.platformId, items, cursor, repeated);
+            if (notifyNewComments) await Promise.all(created.map((comment) => this.notify({ id: `new-comment:${note.connectorType}:${note.platformId}:${comment.platformId}`, type: 'new_comment', accountId, data: { noteId: note.platformId, commentId: comment.platformId } })));
+            if (repeated) await this.notify({ id: `comment-sync-incomplete:${jobId}:${note.platformId}:cursor`, type: 'comment_sync_incomplete', accountId, data: { noteId: note.platformId } });
+          },
         );
       } catch (error) {
         await this.repository.markCommentIncomplete(
@@ -92,6 +103,7 @@ export class SyncService {
           isAuthorizationError(error) ? 'authorization_required' : 'failed',
           error instanceof Error ? error.message : String(error),
         );
+        await this.notify({ id: `comment-sync-incomplete:${jobId}:${note.platformId}:error`, type: 'comment_sync_incomplete', accountId, data: { noteId: note.platformId } });
         throw error;
       }
       if (!ok) return false;
@@ -132,6 +144,10 @@ export class SyncService {
       seen.add(page.nextCursor);
       cursor = page.nextCursor;
     }
+  }
+
+  private async notify(event: PublishableNotificationEvent) {
+    try { await this.notifications?.publish(event); } catch { /* notification delivery cannot fail sync */ }
   }
 }
 

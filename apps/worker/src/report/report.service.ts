@@ -40,14 +40,14 @@ export interface ReportStore {
   listNoteIds(accountId: string): Promise<string[]>;
   listRequiredMetricDefinitions(): Promise<RequiredMetricDefinition[]>;
   loadCumulativeMetrics(accountId: string, start: Date, end: Date): Promise<CumulativeSnapshot[]>;
-  createVersion(input: CreateReportVersionInput): Promise<{ accountId: string; version: number; status: string }>;
+  createVersion(input: CreateReportVersionInput): Promise<{ id: string; accountId: string; version: number; status: string }>;
 }
 
 export interface ReportResult {
   status: ReportStatus;
   missingDates: string[];
   missingFields: MissingReportField[];
-  reports: Array<{ accountId: string; version: number; status: string }>;
+  reports: Array<{ id: string; accountId: string; version: number; status: string }>;
 }
 
 export class ReportService {
@@ -167,7 +167,7 @@ export class PrismaReportStore implements ReportStore {
             metricDefinitionId: metric.metricDefinitionId, availability: 'available', value: metric.value,
           })) },
         },
-        select: { accountId: true, version: true, status: true },
+        select: { id: true, accountId: true, version: true, status: true },
       });
     });
   }

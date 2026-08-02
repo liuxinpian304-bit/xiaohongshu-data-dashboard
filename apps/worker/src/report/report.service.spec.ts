@@ -14,7 +14,7 @@ function storeWithSnapshots(snapshotDates: string[]): ReportStore {
     createVersion: async (input) => {
       const version = versions.length + 1;
       versions.push({ version, status: input.status });
-      return { accountId: input.accountId, version, status: input.status };
+      return { id: `report-${version}`, accountId: input.accountId, version, status: input.status };
     },
   };
 }
@@ -67,7 +67,7 @@ describe('ReportService', () => {
       ],
       createVersion: async (input) => {
         savedMetrics = input.metrics;
-        return { accountId: input.accountId, version: 1, status: input.status };
+        return { id: 'report-1', accountId: input.accountId, version: 1, status: input.status };
       },
     };
 
@@ -85,7 +85,7 @@ describe('ReportService', () => {
         { metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date('2026-08-01T00:15:00+08:00'), value: 100 },
         { metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date('2026-08-01T23:45:00+08:00'), value: 120 },
       ],
-      createVersion: async (input) => ({ accountId: input.accountId, version: 1, status: input.status }),
+      createVersion: async (input) => ({ id: 'report-1', accountId: input.accountId, version: 1, status: input.status }),
     };
 
     const report = await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
@@ -107,7 +107,7 @@ describe('ReportService', () => {
         { metricDefinitionId: 'likes', noteId: 'note-1', capturedAt: new Date(`${date}T00:15:00+08:00`), value: index * 10 },
         { metricDefinitionId: 'likes', noteId: 'note-1', capturedAt: new Date(`${date}T23:45:00+08:00`), value: index * 10 + 1 },
       ]),
-      createVersion: async (input) => ({ accountId: input.accountId, version: 1, status: input.status }),
+      createVersion: async (input) => ({ id: 'report-1', accountId: input.accountId, version: 1, status: input.status }),
     };
 
     const report = await new ReportService(store).generateReport('weekly', new Date('2026-08-03T08:00:00+08:00'));
@@ -125,7 +125,7 @@ describe('ReportService', () => {
       loadCumulativeMetrics: async () => dates.map((date, value) => ({
         metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date(`${date}T12:00:00+08:00`), value,
       })),
-      createVersion: async (input) => ({ accountId: input.accountId, version: 1, status: input.status }),
+      createVersion: async (input) => ({ id: 'report-1', accountId: input.accountId, version: 1, status: input.status }),
     };
 
     const report = await new ReportService(store).generateReport('weekly', new Date('2026-08-03T08:00:00+08:00'));
@@ -139,7 +139,7 @@ describe('ReportService', () => {
     const store = storeWithSnapshots(['2026-08-01T00:15:00+08:00', '2026-08-01T23:45:00+08:00']);
     store.createVersion = async (input) => {
       saved = input;
-      return { accountId: input.accountId, version: 2, status: input.status };
+      return { id: 'report-2', accountId: input.accountId, version: 2, status: input.status };
     };
 
     await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'), {

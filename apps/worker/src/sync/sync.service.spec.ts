@@ -81,6 +81,27 @@ describe('SyncService', () => {
     expect(await repository.countComments('note-1')).toBe(12);
   });
 
+  it('publishes completed and new-comment events at real sync boundaries', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
+    await new SyncService(new MockXhsConnector(), repository).runAccountSync('job-notification-baseline', account.id);
+    const events: Array<{ id: string; type: string }> = [];
+    const publisher = { publish: async (event: { id: string; type: string }) => { events.push(event); } };
+    const inner = new MockXhsConnector();
+    const connector = new FaultInjectingConnector(inner);
+    connector.listComments = async (input) => {
+      const page = await inner.listComments(input);
+      return input.noteId === 'note-1' && input.cursor === null ? { ...page, items: [...page.items, {
+        platformId: 'comment-note-1-new', noteId: 'note-1', authorName: 'New user', content: 'New comment',
+        createdAt: new Date().toISOString(), source: 'mock' as const,
+      }] } : page;
+    };
+    const service = new SyncService(connector, repository, publisher);
+    expect((service as unknown as { notifications: unknown }).notifications).toBe(publisher);
+    await service.runAccountSync('job-notifications', account.id);
+    expect(new Set(events.filter(({ type }) => type === 'new_comment').map(({ id }) => id)).size).toBe(1);
+    expect(events.at(-1)?.type).toBe('sync_completed');
+  });
+
   it('publishes a persistent backfill event only after metric snapshots commit', async () => {
     const observed: string[] = [];
     const eventRepository = new SyncRepository(prisma, async (event) => {
@@ -227,10 +248,21 @@ describe('SyncService', () => {
       refreshCredential: inner.refreshCredential.bind(inner),
     };
 
-    await new SyncService(connector, repository).runAccountSync('job-no-comments', account.id);
+    const events: Array<{ type: string }> = [];
+    await new SyncService(connector, repository, { publish: async (event) => { events.push(event); } }).runAccountSync('job-no-comments', account.id);
 
     expect(await repository.getCommentCompleteness('mock', account.id, 'note-1')).toBe('authorization_required');
     expect(await repository.countComments('note-1')).toBe(0);
+    expect(events.some(({ type }) => type === 'comment_sync_incomplete')).toBe(true);
+  });
+
+  it.each([[401, 'authorization_expired'], [500, 'sync_failed']] as const)('publishes the classified sync failure for HTTP %s', async (status, type) => {
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
+    const inner = new MockXhsConnector();
+    const connector = { ...inner, getCapabilities: async () => { throw Object.assign(new Error('connector failed'), { status }); } } as unknown as XhsConnector;
+    const events: Array<{ type: string }> = [];
+    await expect(new SyncService(connector, repository, { publish: async (event) => { events.push(event); } }).runAccountSync(`job-failure-${status}`, account.id)).rejects.toThrow('connector failed');
+    expect(events.at(-1)?.type).toBe(type);
   });
 
   it('isolates notes with the same platform id across connectors', async () => {

@@ -12,6 +12,10 @@ export class SyncRepository {
     private readonly onMetricSnapshotsCommitted?: (event: MetricBackfillEvent) => Promise<void>,
   ) {}
 
+  async hasCompletedSyncBefore(accountId: string, jobId: string) {
+    return (await this.db.syncJob.count({ where: { accountId, status: 'succeeded', externalJobId: { not: jobId } } })) > 0;
+  }
+
   async startJob(externalJobId: string, accountId: string) {
     return this.db.syncJob.upsert({
       where: { externalJobId },
@@ -91,8 +95,13 @@ export class SyncRepository {
   }
 
   async saveCommentsPage(jobId: string, accountId: string, connectorType: string, notePlatformId: string, comments: Comment[], nextCursor: string | null, unverifiable = false) {
-    await this.db.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
+      const existing = new Set((await tx.comment.findMany({
+        where: { OR: comments.map((comment) => ({ connectorType: comment.source, platformId: comment.platformId })) },
+        select: { connectorType: true, platformId: true },
+      })).map((comment) => `${comment.connectorType}\0${comment.platformId}`));
+      const created = comments.filter((comment) => !existing.has(`${comment.source}\0${comment.platformId}`));
       for (const comment of comments) {
         await tx.comment.upsert({
           where: { connectorType_platformId: { connectorType: comment.source, platformId: comment.platformId } },
@@ -111,6 +120,7 @@ export class SyncRepository {
         unverifiable ? `repeated comments cursor for ${notePlatformId}` : null,
       );
       if (unverifiable) await this.markUnverifiableInTransaction(tx, jobId, `repeated comments cursor for ${notePlatformId}`);
+      return created;
     });
   }
 

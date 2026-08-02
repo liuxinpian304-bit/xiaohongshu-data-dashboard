@@ -24,6 +24,6 @@ describe('PrismaNotificationRepository', () => {
 
     expect(first.id).toBe(second.id);
     expect(await firstDb.notification.count({ where: { eventId: event.id } })).toBe(1);
-    await firstDb.account.delete({ where: { id: account.id } });
+    await firstDb.account.deleteMany({ where: { id: account.id } });
   });
 });

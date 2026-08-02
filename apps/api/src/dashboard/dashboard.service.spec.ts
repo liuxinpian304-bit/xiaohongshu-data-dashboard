@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { completedCollectionJobWhere, DashboardService, type DashboardStore } from './dashboard.service';
 
-const snap = (overrides: Partial<any> = {}) => ({ noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', availability: 'available', value: '100', capturedAt: new Date('2025-12-28T10:00:00Z'), source: 'official', ...overrides });
-const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z')): DashboardStore => ({ async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞' }, { id: 'views-id', key: 'views', displayName: '访客' }], snapshots, lastSyncedAt }; } });
+const snap = (overrides: Partial<any> = {}) => ({ noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', aggregation: 'cumulative_delta', availability: 'available', value: '100', capturedAt: new Date('2025-12-28T10:00:00Z'), source: 'official', ...overrides });
+const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z')): DashboardStore => ({ async isAuthorizedOfficialAccount() { return true; }, async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta' }, { id: 'views-id', key: 'views', displayName: '访客', aggregation: 'cumulative_delta' }], snapshots, lastSyncedAt }; } });
 
 describe('DashboardService', () => {
   it('only considers completed collection jobs for lastSyncedAt, never comment exports', () => {
-    expect(completedCollectionJobWhere('official', 'account-1')).toEqual(expect.objectContaining({ status: 'succeeded', currentStage: 'complete', accountId: 'account-1' }));
-    expect(completedCollectionJobWhere('official')).not.toEqual(expect.objectContaining({ currentStage: 'export_comments' }));
+    const now = new Date();
+    expect(completedCollectionJobWhere('official', 'account-1', now)).toEqual(expect.objectContaining({ status: 'succeeded', currentStage: 'complete', accountId: 'account-1' }));
+    expect(completedCollectionJobWhere('official', undefined, now)).not.toEqual(expect.objectContaining({ currentStage: 'export_comments' }));
   });
   it('uses the pre-period baseline for cross-year weekly deltas and cumulative daily trend', async () => {
     const store = storeWith([
@@ -50,6 +51,25 @@ describe('DashboardService', () => {
   it('rejects mock and mixed source data', async () => {
     await expect(new DashboardService(storeWith([])).get('daily', undefined, 'mock')).rejects.toThrow('official');
     await expect(new DashboardService(storeWith([snap({ source: 'mock' })])).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'))).rejects.toThrow('mixed');
+  });
+
+  it('rejects an invalid, expired, or inactive selected account instead of falling back', async () => {
+    const store = storeWith([]); store.isAuthorizedOfficialAccount = async () => false;
+    await expect(new DashboardService(store).get('daily', '00000000-0000-4000-8000-000000000001')).rejects.toThrow('active authorized');
+  });
+
+  it('applies explicit interval, period-end and safe deduplicated semantics', async () => {
+    const at = (day: number) => new Date(`2025-12-${day}T04:00:00Z`);
+    const result = await new DashboardService(storeWith([
+      snap({ noteId: 'sum', metricDefinitionId: 'sum', metricKey: 'sum', aggregation: 'sum_interval', capturedAt: at(29), value: '3' }),
+      snap({ noteId: 'sum', metricDefinitionId: 'sum', metricKey: 'sum', aggregation: 'sum_interval', capturedAt: at(30), value: '4' }),
+      snap({ noteId: 'end', metricDefinitionId: 'end', metricKey: 'end', aggregation: 'period_end', capturedAt: at(29), value: '8' }),
+      snap({ noteId: 'end', metricDefinitionId: 'end', metricKey: 'end', aggregation: 'period_end', capturedAt: at(30), value: '11' }),
+      snap({ noteId: 'dedup', metricDefinitionId: 'dedup', metricKey: 'dedup', aggregation: 'deduplicated_period', capturedAt: at(30), value: '20' }),
+    ])).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'));
+    expect(result.cards.find(({ key }) => key === 'sum')).toMatchObject({ value: '7', availability: 'available' });
+    expect(result.cards.find(({ key }) => key === 'end')).toMatchObject({ value: '11', availability: 'available' });
+    expect(result.cards.find(({ key }) => key === 'dedup')).toMatchObject({ value: null, availability: 'not_synced' });
   });
 
   it('keeps a successful empty dataset distinct from fabricated values', async () => {

@@ -6,6 +6,7 @@ export type DashboardPeriod = 'daily' | 'weekly' | 'monthly';
 
 export type DashboardCard = {
   key: string;
+  aggregation: 'cumulative_delta' | 'sum_interval' | 'period_end' | 'deduplicated_period';
   value: string | null;
   availability: DataAvailabilityState;
 };
@@ -78,7 +79,22 @@ export function getDashboard(period: DashboardPeriod, accountId?: string) {
   return apiGet<DashboardResponse>(`/dashboard?${query}`);
 }
 
-export function getAccounts() { return apiGet<CursorPage<Account>>('/accounts?limit=200'); }
+export async function getAuthorizedOfficialAccounts() {
+  return collectCursorPages<Account>((cursor) => {
+    const query = new URLSearchParams({ limit: '200' }); if (cursor) query.set('cursor', cursor);
+    return apiGet<CursorPage<Account>>(`/accounts/authorized-official?${query}`);
+  });
+}
+
+export async function collectCursorPages<T>(load: (cursor: string | null) => Promise<ApiResult<CursorPage<T>>>) {
+  const items: T[] = []; let cursor: string | null = null;
+  do {
+    const result = await load(cursor);
+    if (result.status !== 'ok') return result;
+    items.push(...result.data.items); cursor = result.data.pageInfo.hasMore ? result.data.pageInfo.nextCursor : null;
+  } while (cursor);
+  return { status: 'ok', data: { items, pageInfo: { nextCursor: null, hasMore: false } } } as const;
+}
 
 export function getRecentNotifications(limit = 5) {
   return apiGet<CursorPage<Notification>>(`/notifications?limit=${limit}`);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { requestJson } from './api';
+import { collectCursorPages, requestJson } from './api';
 
 describe('requestJson', () => {
   it('keeps an authenticated successful empty response as success', async () => {
@@ -23,5 +23,11 @@ describe('requestJson', () => {
 
     expect(network).toMatchObject({ status: 'error', kind: 'network' });
     expect(malformed).toMatchObject({ status: 'error', kind: 'parse' });
+  });
+
+  it('collects every authorized account page instead of stopping at 200', async () => {
+    const pages = [Array.from({ length: 200 }, (_, id) => id), Array.from({ length: 5 }, (_, id) => id + 200)];
+    const result = await collectCursorPages(async (cursor) => ({ status: 'ok', data: { items: pages[cursor ? 1 : 0]!, pageInfo: { hasMore: !cursor, nextCursor: cursor ? null : 'page-2' } } }));
+    expect(result.status === 'ok' && result.data.items).toHaveLength(205);
   });
 });

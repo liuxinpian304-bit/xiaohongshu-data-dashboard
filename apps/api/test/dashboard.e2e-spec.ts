@@ -77,6 +77,8 @@ describe('dashboard API', () => {
     expect(schemas.DashboardResponseDto.properties.source).toMatchObject({ type: 'string', nullable: true });
     expect(schemas.DashboardResponseDto.properties.trend.items.$ref).toBe('#/components/schemas/DashboardTrendPointDto');
     expect(schemas.DashboardResponseDto.properties.rankedNotes.items.$ref).toBe('#/components/schemas/DashboardRankedNoteDto');
+    expect(schemas.DashboardCardDto.properties.aggregation.enum).toEqual(['cumulative_delta', 'sum_interval', 'period_end', 'deduplicated_period']);
+    expect(spec.paths['/accounts/authorized-official'].get.responses['200'].content['application/json'].schema.properties.items.items.$ref).toBe('#/components/schemas/AccountDto');
     expect(schemas.NotificationDto.properties.type.enum).toContain('report_rebuilt');
     expect(schemas.NotificationDto.properties.eventId).not.toHaveProperty('format');
     for (const path of ['/accounts', '/jobs', '/notes', '/comments', '/reports', '/notifications']) {

@@ -13,6 +13,13 @@ export class AccountsService {
     const items = await prisma.account.findMany({ where: cursor ? { id: { gt: cursor } } : undefined, orderBy: { id: 'asc' }, take: limit + 1, include: { capabilities: true } });
     return page(items, limit);
   }
+  async listAuthorizedOfficial(cursor: string | undefined, limit: number, now = new Date()) {
+    const items = await prisma.account.findMany({
+      where: { connectorType: 'official', ...(cursor ? { id: { gt: cursor } } : {}), credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } }, capabilities: { some: { enabled: true } } },
+      orderBy: { id: 'asc' }, take: limit + 1, include: { capabilities: true },
+    });
+    return page(items, limit);
+  }
   async authorize(input: { connectorType: string; platformId: string; displayName?: string; secret: string; kind: string }) {
     return prisma.$transaction(async (tx) => {
       const account = await tx.account.upsert({ where: { connectorType_platformId: { connectorType: input.connectorType, platformId: input.platformId } }, create: { connectorType: input.connectorType, platformId: input.platformId, displayName: input.displayName }, update: { displayName: input.displayName } });

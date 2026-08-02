@@ -1,4 +1,4 @@
-import type { Comment, ConnectorCapabilities, Note, NoteMetric, Reply } from '@xhs/connector';
+import { NOTE_METRIC_DEFINITIONS, type Comment, type ConnectorCapabilities, type Note, type NoteMetric, type Reply } from '@xhs/connector';
 import { Prisma, type DatabaseClient, type TransactionClient } from '@xhs/database';
 import { createHash } from 'node:crypto';
 
@@ -68,12 +68,14 @@ export class SyncRepository {
       const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
       const capturedDates = backfillBusinessDates(metrics);
       const backfillId = createHash('sha256').update(`${jobId}\0${note.id}\0${capturedDates.join(',')}`).digest('hex').slice(0, 32);
+      const source = metrics[0]?.source ?? (connectorType === 'mock' ? 'mock' : 'official');
+      const semantics = NOTE_METRIC_DEFINITIONS[source];
       const definitions = [
-        ['views', '浏览量'], ['likes', '点赞量'], ['comments', '评论量'],
+        ['views', '浏览量', semantics.views], ['likes', '点赞量', semantics.likes], ['comments', '评论量', semantics.comments],
       ] as const;
-      for (const [key, displayName] of definitions) {
+      for (const [key, displayName, aggregation] of definitions) {
         const definition = await tx.metricDefinition.upsert({
-          where: { key }, create: { key, displayName, unit: 'count' }, update: {},
+          where: { key }, create: { key, displayName, unit: 'count', aggregation }, update: { aggregation },
         });
         for (const metric of metrics) {
           await tx.metricSnapshot.upsert({

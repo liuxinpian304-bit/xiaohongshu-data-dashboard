@@ -52,6 +52,11 @@ export interface NoteMetric {
   source: ConnectorSource;
 }
 
+export const NOTE_METRIC_DEFINITIONS = {
+  official: { views: 'cumulative_delta', likes: 'cumulative_delta', comments: 'cumulative_delta' },
+  mock: { views: 'cumulative_delta', likes: 'cumulative_delta', comments: 'cumulative_delta' },
+} as const;
+
 export interface Comment {
   platformId: string;
   noteId: string;

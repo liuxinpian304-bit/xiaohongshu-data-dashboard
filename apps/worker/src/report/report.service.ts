@@ -1,15 +1,16 @@
-import { aggregateCumulative, getReportPeriod, type ReportType } from '@xhs/domain';
+import { aggregateMetricSeries, getReportPeriod, type MetricAggregation, type ReportType } from '@xhs/domain';
 import type { DatabaseClient } from '@xhs/database';
 
 export type ReportStatus = 'complete' | 'awaiting_data';
 export interface MissingReportField { noteId: string; metricDefinitionId: string | null; date: string; metricKey?: string; reason?: 'metric_definition_missing' }
-export interface RequiredMetricDefinition { key: 'views' | 'likes' | 'comments'; id?: string }
+export interface RequiredMetricDefinition { key: 'views' | 'likes' | 'comments'; id?: string; aggregation?: MetricAggregation }
 
 export interface CumulativeSnapshot {
   metricDefinitionId: string;
   noteId: string;
   capturedAt: Date;
   value: number;
+  aggregation?: MetricAggregation;
 }
 
 export interface CreateReportVersionInput {
@@ -134,18 +135,18 @@ export class PrismaReportStore implements ReportStore {
 
   async listRequiredMetricDefinitions(): Promise<RequiredMetricDefinition[]> {
     const byKey = new Map((await this.db.metricDefinition.findMany({
-      where: { key: { in: ['views', 'likes', 'comments'] } }, select: { id: true, key: true },
-    })).map((definition) => [definition.key, definition.id]));
-    return (['views', 'likes', 'comments'] as const).map((key) => ({ key, id: byKey.get(key) }));
+      where: { key: { in: ['views', 'likes', 'comments'] } }, select: { id: true, key: true, aggregation: true },
+    })).map((definition) => [definition.key, definition]));
+    return (['views', 'likes', 'comments'] as const).map((key) => ({ key, id: byKey.get(key)?.id, aggregation: byKey.get(key)?.aggregation }));
   }
 
   async loadCumulativeMetrics(accountId: string, start: Date, end: Date) {
     const snapshots = await this.db.metricSnapshot.findMany({
       where: { note: { accountId }, capturedAt: { gte: start, lte: end }, availability: 'available', value: { not: null } },
-      select: { metricDefinitionId: true, noteId: true, capturedAt: true, value: true },
+      select: { metricDefinitionId: true, noteId: true, capturedAt: true, value: true, metricDefinition: { select: { aggregation: true } } },
       orderBy: { capturedAt: 'asc' },
     });
-    return snapshots.map((snapshot) => ({ ...snapshot, value: Number(snapshot.value) }));
+    return snapshots.map((snapshot) => ({ metricDefinitionId: snapshot.metricDefinitionId, noteId: snapshot.noteId, capturedAt: snapshot.capturedAt, value: Number(snapshot.value), aggregation: snapshot.metricDefinition.aggregation }));
   }
 
   async createVersion(input: CreateReportVersionInput) {
@@ -182,9 +183,10 @@ function aggregateByMetric(snapshots: CumulativeSnapshot[]) {
   }
   return [...groups].map(([metricDefinitionId, notes]) => ({
     metricDefinitionId,
-    value: [...notes.values()].reduce((total, values) => total + aggregateCumulative(
-      values.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()).map((item) => item.value),
-    ), 0),
+    value: [...notes.values()].reduce((total, values) => total + (aggregateMetricSeries(
+      values[0]?.aggregation ?? 'cumulative_delta',
+      values.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()).map((item) => ({ value: item.value })),
+    ) ?? 0), 0),
   }));
 }
 

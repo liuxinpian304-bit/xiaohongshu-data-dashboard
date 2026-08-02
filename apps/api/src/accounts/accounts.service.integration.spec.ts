@@ -39,4 +39,13 @@ describe('account credential lifecycle', () => {
     await expect(new AccountsService(new AuditService()).reauthorize(account.id, 'new', 'oauth')).rejects.toThrow();
     expect((await prisma.credential.findFirstOrThrow({ where: { accountId: account.id } })).secret).toBe('old');
   });
+  it('paginates only active authorized official accounts and excludes retained/deactivated records', async () => {
+    const make = (platformId: string, expiresAt: Date | null, enabled: boolean, connectorType = 'official') => prisma.account.create({ data: { connectorType, platformId, credentials: { create: { kind: 'oauth', secret: 'encrypted', expiresAt } }, capabilities: { create: { capability: 'noteMetrics', enabled } } } });
+    const active = await Promise.all([make('active-1', null, true), make('active-2', new Date(Date.now() + 60_000), true), make('active-3', null, true)]);
+    await make('expired', new Date(0), true); await make('deactivated', null, false); await make('mock', null, true, 'mock');
+    const service = new AccountsService(new AuditService());
+    const first = await service.listAuthorizedOfficial(undefined, 2); const second = await service.listAuthorizedOfficial(first.pageInfo.nextCursor!, 2);
+    expect([...first.items, ...second.items].map(({ id }) => id).sort()).toEqual(active.map(({ id }) => id).sort());
+    expect(first.pageInfo.hasMore).toBe(true); expect(second.pageInfo.hasMore).toBe(false);
+  });
 });

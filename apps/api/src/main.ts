@@ -33,15 +33,16 @@ export function configureApp(app: INestApplication) {
   }
   const addParameters = (path: string, names: Array<[string, string, boolean, string?, string[]?]>) => { const item = document.paths[path]; if (!item) return; for (const operation of Object.values(item)) if (operation && 'responses' in operation) operation.parameters = [...(operation.parameters ?? []), ...names.map(([name, location, required, format, values]) => ({ name, in: location, required, schema: { type: name === 'limit' ? 'integer' : 'string', ...(format ? { format } : {}), ...(values ? { enum: values } : {}) } }))]; };
   for (const path of Object.keys(document.paths).filter((value) => value.includes('{id}'))) addParameters(path, [['id', 'path', true, 'uuid']]);
-  for (const path of ['/accounts', '/jobs', '/notes', '/comments', '/reports', '/notifications']) addParameters(path, [['cursor', 'query', false, 'uuid'], ['limit', 'query', false]]);
+  for (const path of ['/accounts', '/accounts/authorized-official', '/jobs', '/notes', '/comments', '/reports', '/notifications']) addParameters(path, [['cursor', 'query', false, 'uuid'], ['limit', 'query', false]]);
   for (const path of ['/notes', '/comments', '/comments/export.csv', '/reports']) addParameters(path, [['accountId', 'query', false, 'uuid']]);
   for (const path of ['/comments', '/comments/export.csv']) addParameters(path, [['noteId', 'query', false, 'uuid'], ['from', 'query', false, 'date-time'], ['to', 'query', false, 'date-time']]);
   for (const path of ['/comments', '/comments/export.csv']) { const operation = document.paths[path]?.get; if (operation) operation.parameters = [...(operation.parameters ?? []), { name: 'accountIds', in: 'query', required: false, schema: { type: 'array', items: { type: 'string', format: 'uuid' } } }]; }
-  addParameters('/dashboard', [['period', 'query', false, undefined, ['daily', 'weekly', 'monthly']], ['accountId', 'query', false, 'uuid']]);
+  addParameters('/dashboard', [['period', 'query', false, undefined, ['daily', 'weekly', 'monthly']], ['accountId', 'query', false, 'uuid'], ['source', 'query', false, undefined, ['official']]]);
   const body = (schema: string) => ({ required: true, content: { 'application/json': { schema: { $ref: schema } } } });
   const success = (schema: string, description = 'Success') => ({ description, content: { 'application/json': { schema: { $ref: schema } } } });
   const page = (item: string) => ({ description: 'Cursor page', content: { 'application/json': { schema: { type: 'object', required: ['items', 'pageInfo'], properties: { items: { type: 'array', items: { $ref: item } }, pageInfo: { $ref: getSchemaPath(PageInfoDto) } } } } } });
   for (const [path, model] of [['/accounts', AccountDto], ['/jobs', SyncJobDto], ['/notes', NoteDto], ['/comments', CommentDto], ['/reports', ReportDto]] as const) document.paths[path]!.get!.responses['200'] = page(getSchemaPath(model));
+  document.paths['/accounts/authorized-official']!.get!.responses['200'] = page(getSchemaPath(AccountDto));
   document.paths['/dashboard']!.get!.responses['200'] = success(getSchemaPath(DashboardResponseDto));
   document.paths['/auth/csrf']!.get!.responses['200'] = success(getSchemaPath(AuthCsrfResponseDto));
   document.paths['/auth/login']!.post!.responses['201'] = success(getSchemaPath(AuthLoginResponseDto));

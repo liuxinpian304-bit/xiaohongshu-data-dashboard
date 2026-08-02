@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { MetricCard } from '../../../components/metric-card';
 import { MetricTrendChart } from '../../../components/metric-trend-chart';
 import { PeriodTabs } from '../../../components/period-tabs';
-import { getAccounts, getDashboard, getRecentNotifications, type DashboardCard, type DashboardPeriod } from '../../../lib/api';
+import { getAuthorizedOfficialAccounts, getDashboard, getRecentNotifications, type DashboardCard, type DashboardPeriod } from '../../../lib/api';
 import { formatMetric, formatReportRange, formatShanghaiDateTime } from '../../../lib/format';
 
 const metricLabels: Record<string, string> = {
@@ -44,20 +44,21 @@ function chooseTrend(trend: Array<{ date: string; metrics: DashboardCard[] }>) {
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ period?: string | string[]; accountId?: string | string[] }> }) {
   const params = await searchParams; const period = normalizePeriod(params.period); const requestedAccountId = typeof params.accountId === 'string' ? params.accountId : undefined;
-  const accountsResult = await getAccounts();
+  const accountsResult = await getAuthorizedOfficialAccounts();
   if (accountsResult.status === 'unauthorized') redirect(`/login?next=${encodeURIComponent(`/dashboard?period=${period}`)}`);
-  const officialAccounts = accountsResult.status === 'ok' ? accountsResult.data.items.filter(({ connectorType }) => connectorType === 'official') : [];
+  const officialAccounts = accountsResult.status === 'ok' ? accountsResult.data.items : [];
   const invalidAccount = accountsResult.status === 'ok' && Boolean(requestedAccountId) && !officialAccounts.some(({ id }) => id === requestedAccountId);
-  const accountId = accountsResult.status === 'error' ? requestedAccountId : invalidAccount ? undefined : requestedAccountId;
+  const accountId = requestedAccountId;
   const [dashboardResult, notificationsResult] = await Promise.all([getDashboard(period, accountId), getRecentNotifications()]);
   const suffix = `${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
   if (dashboardResult.status === 'unauthorized' || notificationsResult.status === 'unauthorized') redirect(`/login?next=${encodeURIComponent(`/dashboard?period=${period}${suffix}`)}`);
 
   if (dashboardResult.status === 'error') {
+    const invalidMessage = invalidAccount ? '所选账号不存在、授权已过期或已停用，请重新选择已授权的官方账号。' : `${dashboardResult.message}，请检查服务状态后重试。`;
     return (
       <div className="dashboard-page">
         <header className="dashboard-heading dashboard-heading--error"><div><h1>昨日数据</h1><p>按上海时区生成，官方数据未到齐时会明确标记。</p></div><PeriodTabs period={period} accountId={accountId} /></header>
-        <section className="load-error" role="alert"><span aria-hidden="true">!</span><h2>数据暂时无法加载</h2><p>{dashboardResult.message}，请检查服务状态后重试。</p><a href={`/dashboard?period=${period}${suffix}`}>重新加载</a></section>
+        <section className="load-error" role="alert"><span aria-hidden="true">!</span><h2>{invalidAccount ? '账号不可用' : '数据暂时无法加载'}</h2><p>{invalidMessage}</p>{invalidAccount ? <Link href="/accounts">检查账号授权</Link> : <a href={`/dashboard?period=${period}${suffix}`}>重新加载</a>}</section>
       </div>
     );
   }

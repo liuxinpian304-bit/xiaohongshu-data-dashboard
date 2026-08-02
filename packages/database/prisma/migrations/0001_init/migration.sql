@@ -4,6 +4,9 @@ CREATE SCHEMA IF NOT EXISTS "public";
 -- CreateEnum
 CREATE TYPE "SyncJobStatus" AS ENUM ('pending', 'running', 'succeeded', 'failed');
 
+-- CreateEnum
+CREATE TYPE "MetricAvailability" AS ENUM ('zero', 'not_synced', 'awaiting_authorization', 'not_provided', 'available');
+
 -- CreateTable
 CREATE TABLE "Account" (
     "id" UUID NOT NULL,
@@ -72,11 +75,17 @@ CREATE TABLE "MetricSnapshot" (
     "id" UUID NOT NULL,
     "noteId" UUID NOT NULL,
     "metricDefinitionId" UUID NOT NULL,
-    "value" DECIMAL(20,4) NOT NULL,
+    "availability" "MetricAvailability" NOT NULL,
+    "value" DECIMAL(20,4),
     "capturedAt" TIMESTAMPTZ(3) NOT NULL,
     "source" TEXT NOT NULL,
 
-    CONSTRAINT "MetricSnapshot_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "MetricSnapshot_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "MetricSnapshot_availability_value_check" CHECK (
+        ("availability" = 'zero' AND "value" = 0) OR
+        ("availability" = 'available' AND "value" IS NOT NULL AND "value" <> 0) OR
+        ("availability" IN ('not_synced', 'awaiting_authorization', 'not_provided') AND "value" IS NULL)
+    )
 );
 
 -- CreateTable
@@ -139,9 +148,15 @@ CREATE TABLE "ReportMetric" (
     "id" UUID NOT NULL,
     "reportId" UUID NOT NULL,
     "metricDefinitionId" UUID NOT NULL,
-    "value" DECIMAL(20,4) NOT NULL,
+    "availability" "MetricAvailability" NOT NULL,
+    "value" DECIMAL(20,4),
 
-    CONSTRAINT "ReportMetric_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "ReportMetric_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "ReportMetric_availability_value_check" CHECK (
+        ("availability" = 'zero' AND "value" = 0) OR
+        ("availability" = 'available' AND "value" IS NOT NULL AND "value" <> 0) OR
+        ("availability" IN ('not_synced', 'awaiting_authorization', 'not_provided') AND "value" IS NULL)
+    )
 );
 
 -- CreateTable

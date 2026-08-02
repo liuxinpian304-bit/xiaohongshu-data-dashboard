@@ -14,6 +14,14 @@ enum SyncJobStatus {
   failed
 }
 
+enum MetricAvailability {
+  zero
+  not_synced
+  awaiting_authorization
+  not_provided
+  available
+}
+
 model Account {
   id            String                @id @default(uuid()) @db.Uuid
   connectorType String
@@ -85,14 +93,15 @@ model MetricDefinition {
 }
 
 model MetricSnapshot {
-  id                 String           @id @default(uuid()) @db.Uuid
-  noteId             String           @db.Uuid
-  metricDefinitionId String           @db.Uuid
-  value              Decimal          @db.Decimal(20, 4)
-  capturedAt         DateTime         @db.Timestamptz(3)
+  id                 String             @id @default(uuid()) @db.Uuid
+  noteId             String             @db.Uuid
+  metricDefinitionId String             @db.Uuid
+  availability       MetricAvailability
+  value              Decimal?           @db.Decimal(20, 4)
+  capturedAt         DateTime           @db.Timestamptz(3)
   source             String
-  note               Note             @relation(fields: [noteId], references: [id], onDelete: Cascade)
-  metricDefinition   MetricDefinition @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
+  note               Note               @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  metricDefinition   MetricDefinition   @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
 
   @@unique([noteId, metricDefinitionId, capturedAt])
   @@index([capturedAt])
@@ -158,12 +167,13 @@ model Report {
 }
 
 model ReportMetric {
-  id                 String           @id @default(uuid()) @db.Uuid
-  reportId           String           @db.Uuid
-  metricDefinitionId String           @db.Uuid
-  value              Decimal          @db.Decimal(20, 4)
-  report             Report           @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  metricDefinition   MetricDefinition @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
+  id                 String             @id @default(uuid()) @db.Uuid
+  reportId           String             @db.Uuid
+  metricDefinitionId String             @db.Uuid
+  availability       MetricAvailability
+  value              Decimal?           @db.Decimal(20, 4)
+  report             Report             @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  metricDefinition   MetricDefinition   @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
 
   @@unique([reportId, metricDefinitionId])
 }

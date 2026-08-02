@@ -30,4 +30,14 @@ describe('requestJson', () => {
     const result = await collectCursorPages(async (cursor) => ({ status: 'ok', data: { items: pages[cursor ? 1 : 0]!, pageInfo: { hasMore: !cursor, nextCursor: cursor ? null : 'page-2' } } }));
     expect(result.status === 'ok' && result.data.items).toHaveLength(205);
   });
+
+  it('fails closed for a missing pagination cursor', async () => {
+    const result = await collectCursorPages(async () => ({ status: 'ok', data: { items: [], pageInfo: { hasMore: true, nextCursor: null } } }));
+    expect(result).toMatchObject({ status: 'error', message: '账号分页游标无效，请刷新后重试' });
+  });
+
+  it('fails closed for a repeated pagination cursor', async () => {
+    const result = await collectCursorPages(async () => ({ status: 'ok', data: { items: [], pageInfo: { hasMore: true, nextCursor: 'same' } } }));
+    expect(result).toMatchObject({ status: 'error', message: '账号分页游标无效，请刷新后重试' });
+  });
 });

@@ -279,6 +279,20 @@ describe('SyncService', () => {
     expect(await prisma.metricSnapshot.count({ where: { noteId: officialNote.id } })).toBe(0);
   });
 
+  it('keeps snapshot semantics immutable across source and definition upgrades', async () => {
+    const semanticKey = `semantic-views-${crypto.randomUUID()}`;
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'semantic-account' } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'semantic-note', title: 'Semantic', publishedAt: new Date() } });
+    const v1 = await prisma.metricDefinition.create({ data: { key: semanticKey, displayName: '浏览', unit: 'count', source: 'official', version: 'official-v1', aggregation: 'cumulative_delta' } });
+    const snapshot = await prisma.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: v1.id, availability: 'available', value: 10, capturedAt: new Date(), source: 'official', aggregation: 'cumulative_delta', aggregationVersion: 'official-v1' } });
+    await prisma.metricDefinition.createMany({ data: [
+      { key: semanticKey, displayName: '浏览', unit: 'count', source: 'official', version: 'official-v2', aggregation: 'period_end' },
+      { key: semanticKey, displayName: '浏览', unit: 'count', source: 'mock', version: 'mock-v1', aggregation: 'sum_interval' },
+    ] });
+    expect(await prisma.metricDefinition.count({ where: { key: semanticKey } })).toBe(3);
+    expect(await prisma.metricSnapshot.findUniqueOrThrow({ where: { id: snapshot.id } })).toMatchObject({ aggregation: 'cumulative_delta', aggregationVersion: 'official-v1' });
+  });
+
   it('clears unverifiable verification state after a successful retry', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
     await repository.startJob('job-recovered', account.id);

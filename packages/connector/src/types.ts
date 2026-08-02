@@ -50,6 +50,13 @@ export interface NoteMetric {
   likes: number;
   comments: number;
   source: ConnectorSource;
+  metricMetadata?: Partial<Record<'views' | 'likes' | 'comments', {
+    aggregation: 'cumulative_delta' | 'sum_interval' | 'period_end' | 'deduplicated_period';
+    aggregationVersion: string;
+    windowStart?: string;
+    windowEnd?: string;
+    authoritativePeriod?: boolean;
+  }>>;
 }
 
 export const NOTE_METRIC_DEFINITIONS = {

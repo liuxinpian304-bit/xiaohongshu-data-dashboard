@@ -74,13 +74,16 @@ export class SyncRepository {
         ['views', '浏览量', semantics.views], ['likes', '点赞量', semantics.likes], ['comments', '评论量', semantics.comments],
       ] as const;
       for (const [key, displayName, aggregation] of definitions) {
+        const aggregationVersion = `${source}-v1`;
         const definition = await tx.metricDefinition.upsert({
-          where: { key }, create: { key, displayName, unit: 'count', aggregation }, update: { aggregation },
+          where: { key_source_version: { key, source, version: aggregationVersion } },
+          create: { key, displayName, unit: 'count', aggregation, source, version: aggregationVersion }, update: {},
         });
         for (const metric of metrics) {
+          const metadata = metric.metricMetadata?.[key];
           await tx.metricSnapshot.upsert({
             where: { noteId_metricDefinitionId_capturedAt: { noteId: note.id, metricDefinitionId: definition.id, capturedAt: new Date(metric.capturedAt) } },
-            create: { noteId: note.id, metricDefinitionId: definition.id, availability: 'available', value: metric[key], capturedAt: new Date(metric.capturedAt), source: metric.source },
+            create: { noteId: note.id, metricDefinitionId: definition.id, availability: 'available', value: metric[key], capturedAt: new Date(metric.capturedAt), source: metric.source, aggregation: metadata?.aggregation ?? aggregation, aggregationVersion: metadata?.aggregationVersion ?? aggregationVersion, windowStart: metadata?.windowStart ? new Date(metadata.windowStart) : null, windowEnd: metadata?.windowEnd ? new Date(metadata.windowEnd) : null, authoritativePeriod: metadata?.authoritativePeriod ?? false },
             update: { availability: 'available', value: metric[key], source: metric.source },
           });
         }

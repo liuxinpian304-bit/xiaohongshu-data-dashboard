@@ -2,7 +2,7 @@ import { aggregateMetricSeries, getReportPeriod, type MetricAggregation, type Re
 import type { DatabaseClient } from '@xhs/database';
 
 export type ReportStatus = 'complete' | 'awaiting_data';
-export interface MissingReportField { noteId: string; metricDefinitionId: string | null; date: string; metricKey?: string; reason?: 'metric_definition_missing' }
+export interface MissingReportField { noteId: string; metricDefinitionId: string | null; date: string; metricKey?: string; reason?: 'metric_definition_missing' | 'aggregation_unavailable' }
 export interface RequiredMetricDefinition { key: 'views' | 'likes' | 'comments'; id?: string; aggregation?: MetricAggregation }
 
 export interface CumulativeSnapshot {
@@ -11,6 +11,11 @@ export interface CumulativeSnapshot {
   capturedAt: Date;
   value: number;
   aggregation?: MetricAggregation;
+  aggregationVersion?: string;
+  windowStart?: Date | null;
+  windowEnd?: Date | null;
+  authoritativePeriod?: boolean;
+  metricKey?: string;
 }
 
 export interface CreateReportVersionInput {
@@ -68,7 +73,13 @@ export class ReportService {
       const [noteIds, metricDefinitions] = await Promise.all([
         this.store.listNoteIds(accountId), this.store.listRequiredMetricDefinitions(),
       ]);
-      const missingFields = findMissingFields(noteIds, metricDefinitions, requiredDates, snapshots);
+      const effectiveDefinitions = metricDefinitions.map((definition) => {
+        const historical = snapshots.find((snapshot) => snapshot.metricKey === definition.key);
+        return historical ? { ...definition, id: historical.metricDefinitionId, aggregation: historical.aggregation } : definition;
+      });
+      const missingFields = findMissingFields(noteIds, effectiveDefinitions, requiredDates, snapshots);
+      const aggregation = aggregateByMetric(snapshots, period.start, period.end);
+      for (const missing of aggregation.missing) if (!missingFields.some((item) => item.noteId === missing.noteId && item.metricDefinitionId === missing.metricDefinitionId)) missingFields.push({ ...missing, date: requiredDates[0]!, reason: 'aggregation_unavailable' });
       const missingDates = [...new Set(missingFields.map((field) => field.date))].sort();
       const reportStatus: ReportStatus = missingDates.length ? 'awaiting_data' : 'complete';
       if (reportStatus === 'awaiting_data') status = reportStatus;
@@ -86,7 +97,7 @@ export class ReportService {
         rebuildJobId: context.rebuildJobId,
         previousReportId: context.previousReportId,
         rebuildReason: context.rebuildReason,
-        metrics: reportStatus === 'complete' ? aggregateByMetric(snapshots) : [],
+        metrics: reportStatus === 'complete' ? aggregation.metrics : [],
       }));
     }
 
@@ -110,10 +121,13 @@ function findMissingFields(noteIds: string[], metricDefinitions: RequiredMetricD
       continue;
     }
     const metricDefinitionId = definition.id;
+    if ((definition.aggregation ?? 'cumulative_delta') !== 'cumulative_delta') continue;
     if (!counts.has(`${noteId}\0${metricDefinitionId}\0${date}`)) missing.push({ noteId, metricDefinitionId, date });
   }
   for (const noteId of noteIds) for (const { id: metricDefinitionId } of metricDefinitions) {
     if (!metricDefinitionId) continue;
+    const definition = metricDefinitions.find(({ id }) => id === metricDefinitionId);
+    if ((definition?.aggregation ?? 'cumulative_delta') !== 'cumulative_delta') continue;
     const seriesKey = `${noteId}\0${metricDefinitionId}`;
     if ((seriesCounts.get(seriesKey) ?? 0) < 2 && !missing.some((field) => field.noteId === noteId && field.metricDefinitionId === metricDefinitionId)) {
       missing.push({ noteId, metricDefinitionId, date: dates[0]! });
@@ -135,18 +149,18 @@ export class PrismaReportStore implements ReportStore {
 
   async listRequiredMetricDefinitions(): Promise<RequiredMetricDefinition[]> {
     const byKey = new Map((await this.db.metricDefinition.findMany({
-      where: { key: { in: ['views', 'likes', 'comments'] } }, select: { id: true, key: true, aggregation: true },
+      where: { key: { in: ['views', 'likes', 'comments'] }, source: { in: ['legacy', 'official'] } }, orderBy: [{ source: 'asc' }, { version: 'asc' }], select: { id: true, key: true, aggregation: true },
     })).map((definition) => [definition.key, definition]));
     return (['views', 'likes', 'comments'] as const).map((key) => ({ key, id: byKey.get(key)?.id, aggregation: byKey.get(key)?.aggregation }));
   }
 
   async loadCumulativeMetrics(accountId: string, start: Date, end: Date) {
-    const snapshots = await this.db.metricSnapshot.findMany({
-      where: { note: { accountId }, capturedAt: { gte: start, lte: end }, availability: 'available', value: { not: null } },
-      select: { metricDefinitionId: true, noteId: true, capturedAt: true, value: true, metricDefinition: { select: { aggregation: true } } },
-      orderBy: { capturedAt: 'asc' },
-    });
-    return snapshots.map((snapshot) => ({ metricDefinitionId: snapshot.metricDefinitionId, noteId: snapshot.noteId, capturedAt: snapshot.capturedAt, value: Number(snapshot.value), aggregation: snapshot.metricDefinition.aggregation }));
+    const select = { metricDefinitionId: true, noteId: true, capturedAt: true, value: true, aggregation: true, aggregationVersion: true, windowStart: true, windowEnd: true, authoritativePeriod: true, metricDefinition: { select: { key: true } } } as const;
+    const [inside, baselines] = await Promise.all([
+      this.db.metricSnapshot.findMany({ where: { note: { accountId }, source: 'official', capturedAt: { gte: start, lte: end }, availability: 'available', value: { not: null } }, select, orderBy: { capturedAt: 'asc' } }),
+      this.db.metricSnapshot.findMany({ where: { note: { accountId }, source: 'official', capturedAt: { lt: start }, availability: 'available', value: { not: null }, aggregation: 'cumulative_delta' }, select, orderBy: { capturedAt: 'desc' }, distinct: ['noteId', 'metricDefinitionId'] }),
+    ]);
+    return [...baselines, ...inside].sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()).map(({ metricDefinition, ...snapshot }) => ({ ...snapshot, metricKey: metricDefinition.key, value: Number(snapshot.value) }));
   }
 
   async createVersion(input: CreateReportVersionInput) {
@@ -174,20 +188,26 @@ export class PrismaReportStore implements ReportStore {
   }
 }
 
-function aggregateByMetric(snapshots: CumulativeSnapshot[]) {
+function aggregateByMetric(snapshots: CumulativeSnapshot[], start: Date, end: Date) {
   const groups = new Map<string, Map<string, CumulativeSnapshot[]>>();
   for (const snapshot of snapshots) {
     const notes = groups.get(snapshot.metricDefinitionId) ?? new Map<string, CumulativeSnapshot[]>();
     notes.set(snapshot.noteId, [...(notes.get(snapshot.noteId) ?? []), snapshot]);
     groups.set(snapshot.metricDefinitionId, notes);
   }
-  return [...groups].map(([metricDefinitionId, notes]) => ({
-    metricDefinitionId,
-    value: [...notes.values()].reduce((total, values) => total + (aggregateMetricSeries(
-      values[0]?.aggregation ?? 'cumulative_delta',
-      values.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()).map((item) => ({ value: item.value })),
-    ) ?? 0), 0),
-  }));
+  const metrics: Array<{ metricDefinitionId: string; value: number }> = []; const missing: Array<{ noteId: string; metricDefinitionId: string }> = [];
+  for (const [metricDefinitionId, notes] of groups) {
+    let total = 0; let available = true;
+    for (const [noteId, values] of notes) {
+      const ordered = values.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
+      const semantic = ordered[0]?.aggregation ?? 'cumulative_delta';
+      const hasRequiredBaseline = semantic !== 'cumulative_delta' || !ordered[0]?.aggregationVersion || ordered[0].capturedAt < start;
+      const value = hasRequiredBaseline ? aggregateMetricSeries(semantic, ordered.map((item) => ({ value: item.value, authoritativePeriod: item.authoritativePeriod, windowStart: item.windowStart ?? undefined, windowEnd: item.windowEnd ?? undefined })), { start, end }) : null;
+      if (value === null) { available = false; missing.push({ noteId, metricDefinitionId }); } else total += value;
+    }
+    if (available) metrics.push({ metricDefinitionId, value: total });
+  }
+  return { metrics, missing };
 }
 
 function calendarDates(start: Date, end: Date): string[] {

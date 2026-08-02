@@ -94,13 +94,17 @@ model Note {
 
 model MetricDefinition {
   id            String           @id @default(uuid()) @db.Uuid
-  key           String           @unique
+  key           String
   displayName   String
   unit          String
   aggregation   MetricAggregation @default(cumulative_delta)
+  source        String            @default("legacy")
+  version       String            @default("legacy-v1")
   createdAt     DateTime         @default(now()) @db.Timestamptz(3)
   snapshots     MetricSnapshot[]
   reportMetrics ReportMetric[]
+
+  @@unique([key, source, version])
 }
 
 model MetricSnapshot {
@@ -111,6 +115,11 @@ model MetricSnapshot {
   value              Decimal?           @db.Decimal(20, 4)
   capturedAt         DateTime           @db.Timestamptz(3)
   source             String
+  aggregation        MetricAggregation @default(cumulative_delta)
+  aggregationVersion String            @default("legacy-v1")
+  windowStart        DateTime?          @db.Timestamptz(3)
+  windowEnd          DateTime?          @db.Timestamptz(3)
+  authoritativePeriod Boolean           @default(false)
   note               Note               @relation(fields: [noteId], references: [id], onDelete: Cascade)
   metricDefinition   MetricDefinition   @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
 

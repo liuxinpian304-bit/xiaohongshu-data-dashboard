@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createReportQueue } from './report.processor';
-import { enqueueReportRebuild, enqueueScheduledReports, rebuildReportJob, ReportRebuildDispatcher, runScheduledReportTick } from './report.scheduler';
+import { DispatchStateConsistencyError, enqueueReportRebuild, enqueueScheduledReports, OwnershipLostError, PrismaAffectedReportStore, rebuildReportJob, ReportRebuildDispatcher, runScheduledReportTick } from './report.scheduler';
 import { reportJobOptions, reportJobsForTick } from './report.scheduler';
 
 const resources: Array<{ close(): Promise<void> }> = [];
@@ -139,6 +139,42 @@ describe('reportJobsForTick', () => {
     await expect(dispatcher.dispatchPending()).resolves.toBeUndefined();
     expect(handled).toEqual(['first', 'second']);
     expect(errors).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'outbox_event_failed', backfillId: 'first' })]));
+  });
+
+  it('rejects a terminal write when the claim no longer owns the event', async () => {
+    const store = new PrismaAffectedReportStore({
+      backfillEvent: { updateMany: async () => ({ count: 0 }) },
+    } as never);
+
+    await expect(store.markDispatched('stale-event', 'stale-owner')).rejects.toBeInstanceOf(OwnershipLostError);
+  });
+
+  it('rejects a terminal write that updates more than one event', async () => {
+    const store = new PrismaAffectedReportStore({
+      backfillEvent: { updateMany: async () => ({ count: 2 }) },
+    } as never);
+
+    await expect(store.markDispatchFailed('duplicate-event', 'queue failed', 'owner')).rejects.toBeInstanceOf(DispatchStateConsistencyError);
+  });
+
+  it('logs a lost claim without a recursive failure write and continues the batch', async () => {
+    const errors: unknown[] = []; const failed: string[] = []; const dispatched: string[] = [];
+    const events = ['stale', 'current'].map((backfillId) => ({ backfillId, accountId: 'a', noteId: 'n', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved', claimToken: `${backfillId}-owner` }));
+    const dispatcher = new ReportRebuildDispatcher({
+      claimPendingEvents: async () => events,
+      findAffectedReports: async () => [],
+      markDispatched: async (id) => {
+        dispatched.push(id);
+        if (id === 'stale') throw new OwnershipLostError(id);
+      },
+      markDispatchFailed: async (id) => { failed.push(id); },
+    }, { add: async () => ({}) } as never, (entry) => errors.push(entry));
+
+    await expect(dispatcher.dispatchPending()).resolves.toBeUndefined();
+
+    expect(dispatched).toEqual(['stale', 'current']);
+    expect(failed).toEqual([]);
+    expect(errors).toEqual([expect.objectContaining({ event: 'claim_lost', backfillId: 'stale' })]);
   });
 
   it('logs a structured top-level claim failure and resolves for the next interval', async () => {

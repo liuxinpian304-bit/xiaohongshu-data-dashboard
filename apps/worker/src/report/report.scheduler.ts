@@ -63,6 +63,20 @@ export interface AffectedReportStore {
   markDispatchFailed?(backfillId: string, error: string, claimToken: string): Promise<void>;
 }
 
+export class OwnershipLostError extends Error {
+  constructor(backfillId: string) {
+    super(`Outbox claim lost for backfill event ${backfillId}`);
+    this.name = 'OwnershipLostError';
+  }
+}
+
+export class DispatchStateConsistencyError extends Error {
+  constructor(backfillId: string, count: number) {
+    super(`Terminal outbox update for backfill event ${backfillId} affected ${count} rows; expected exactly 1`);
+    this.name = 'DispatchStateConsistencyError';
+  }
+}
+
 export class PrismaAffectedReportStore implements AffectedReportStore {
   constructor(private readonly db: DatabaseClient) {}
 
@@ -101,8 +115,10 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
   async markDispatched(backfillId: string, claimToken: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'dispatched', dispatchedAt: new Date(), attempts: { increment: 1 }, lastError: null, claimToken: null, claimedAt: null }); }
   async markDispatchFailed(backfillId: string, error: string, claimToken: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'failed', attempts: { increment: 1 }, lastError: error, claimToken: null, claimedAt: null }); }
   private async updateDispatch(backfillId: string, claimToken: string, data: Parameters<DatabaseClient['backfillEvent']['updateMany']>[0]['data']) {
-    if (!claimToken) return;
-    await this.db.backfillEvent.updateMany({ where: { id: backfillId, claimToken, dispatchStatus: 'processing' }, data });
+    if (!claimToken) throw new OwnershipLostError(backfillId);
+    const result = await this.db.backfillEvent.updateMany({ where: { id: backfillId, claimToken, dispatchStatus: 'processing' }, data });
+    if (result.count === 0) throw new OwnershipLostError(backfillId);
+    if (result.count !== 1) throw new DispatchStateConsistencyError(backfillId, result.count);
   }
 }
 
@@ -125,6 +141,7 @@ export class ReportRebuildDispatcher {
       }
       await this.store.markDispatched?.(event.backfillId, event.claimToken);
     } catch (error) {
+      if (error instanceof OwnershipLostError) throw error;
       await this.store.markDispatchFailed?.(event.backfillId, error instanceof Error ? error.message : String(error), event.claimToken);
     }
   }
@@ -135,7 +152,7 @@ export class ReportRebuildDispatcher {
     catch (error) { this.logError(outboxError('claim_failed', error)); return; }
     for (const event of events) {
       try { await this.handle(event); }
-      catch (error) { this.logError({ ...outboxError('outbox_event_failed', error), backfillId: event.backfillId }); }
+      catch (error) { this.logError({ ...outboxError(error instanceof OwnershipLostError ? 'claim_lost' : 'outbox_event_failed', error), backfillId: event.backfillId }); }
     }
   }
 }

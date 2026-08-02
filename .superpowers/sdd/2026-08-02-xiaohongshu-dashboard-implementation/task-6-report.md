@@ -128,3 +128,23 @@
 - `pnpm --filter worker typecheck`：通过。
 - `pnpm build`：API、Worker、Web 全部构建通过。
 - PostgreSQL 18：`prisma migrate status` 报 7 migrations，database schema up to date。
+
+## Fix round 5（2026-08-02）
+
+### 修复结果
+
+- outbox 终态 `updateMany` 现在必须恰好更新 1 行：0 行抛出 `OwnershipLostError`，多于 1 行抛出 `DispatchStateConsistencyError`，不再丢弃 `count`。
+- 缺失、错误或 stale claim token 都不能静默完成终态写入。
+- `dispatchPending` 将所有权丢失结构化记录为 `claim_lost`，不覆盖新 owner，并继续处理同批后续事件。`markDispatchFailed` 自身丢失所有权时直接向外传播，不会递归重试终态写入。
+
+### RED 证据
+
+- `pnpm --filter worker test -- report.scheduler.spec.ts`：3 个新用例失败；0 行和 2 行终态更新都错误 resolve，stale owner 还调用了 `markDispatchFailed`。
+
+### GREEN / 最终验证
+
+- `pnpm --filter worker test`：7 个文件，48/48 通过；包含 0 行所有权丢失、多行一致性错误、`claim_lost` 日志、无递归失败写及批内继续处理。
+- `pnpm --filter worker typecheck`：通过。
+- `pnpm build`：API、Worker、Web 全部构建通过。
+- PostgreSQL 18：`prisma migrate status` 报 7 migrations，database schema up to date。
+- `git diff --check`：通过。

@@ -7,7 +7,7 @@ import { prisma } from '@xhs/database';
 import { SyncRepository } from './sync.repository';
 import { SyncService } from './sync.service';
 import { createReportQueue } from '../report/report.processor';
-import { PrismaAffectedReportStore, ReportRebuildDispatcher } from '../report/report.scheduler';
+import { OwnershipLostError, PrismaAffectedReportStore, ReportRebuildDispatcher } from '../report/report.scheduler';
 
 class FaultInjectingConnector implements XhsConnector {
   private commentPages = 0;
@@ -145,8 +145,8 @@ describe('SyncService', () => {
     } });
     const store = new PrismaAffectedReportStore(prisma);
 
-    await (store as unknown as { markDispatched(id: string): Promise<void> }).markDispatched(event.id);
-    await store.markDispatchFailed(event.id, 'stale failure', 'wrong-owner');
+    await expect((store as unknown as { markDispatched(id: string): Promise<void> }).markDispatched(event.id)).rejects.toBeInstanceOf(OwnershipLostError);
+    await expect(store.markDispatchFailed(event.id, 'stale failure', 'wrong-owner')).rejects.toBeInstanceOf(OwnershipLostError);
 
     expect(await prisma.backfillEvent.findUniqueOrThrow({ where: { id: event.id } })).toMatchObject({
       dispatchStatus: 'processing', claimToken: 'current-owner', attempts: 0, lastError: null,
@@ -163,7 +163,7 @@ describe('SyncService', () => {
     const store = new PrismaAffectedReportStore(prisma);
     await store.claimPendingEvents('current-owner', new Date('2026-08-01T00:10:00Z'));
 
-    await store.markDispatched(event.id, 'stale-owner');
+    await expect(store.markDispatched(event.id, 'stale-owner')).rejects.toBeInstanceOf(OwnershipLostError);
 
     expect(await prisma.backfillEvent.findUniqueOrThrow({ where: { id: event.id } })).toMatchObject({
       dispatchStatus: 'processing', claimToken: 'current-owner', attempts: 0,

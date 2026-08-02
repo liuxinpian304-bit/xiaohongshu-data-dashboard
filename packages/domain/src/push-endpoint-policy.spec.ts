@@ -34,6 +34,8 @@ describe('PushEndpointPolicy', () => {
       { address: '8.8.8.8', family: 4 },
       { address: '2001:4860:4860::8888', family: 6 },
     ]);
+    expect(await lookupAll(lookup, 4)).toEqual([{ address: '8.8.8.8', family: 4 }]);
+    expect(await lookupAll(lookup, 6)).toEqual([{ address: '2001:4860:4860::8888', family: 6 }]);
     expect(await lookupOne(lookup, 0)).toEqual({ address: '8.8.8.8', family: 4 });
     expect(await lookupOne(lookup, 4)).toEqual({ address: '8.8.8.8', family: 4 });
     expect(await lookupOne(lookup, 6)).toEqual({ address: '2001:4860:4860::8888', family: 6 });
@@ -44,6 +46,7 @@ describe('PushEndpointPolicy', () => {
   it('fails lookup instead of returning an address from the wrong requested family', async () => {
     const pinned = await new PushEndpointPolicy(['push.example.test'], async () => ['8.8.8.8']).resolveAndPin('https://push.example.test/sub');
     await expect(lookupOne(pinned.agent.options.lookup!, 6)).rejects.toThrow('family 6');
+    await expect(lookupAll(pinned.agent.options.lookup!, 6)).rejects.toThrow('family 6');
   });
 
   it('supports the real HTTPS auto-family lookup path while preserving the original TLS hostname', async () => {
@@ -63,8 +66,8 @@ describe('PushEndpointPolicy', () => {
 });
 
 type Lookup = NonNullable<import('node:https').AgentOptions['lookup']>;
-function lookupAll(lookup: Lookup) {
-  return new Promise<Array<{ address: string; family: number }>>((resolve, reject) => lookup('push.example.test', { all: true }, (error, addresses) => error ? reject(error) : resolve(addresses as Array<{ address: string; family: number }>)));
+function lookupAll(lookup: Lookup, family: 0 | 4 | 6 = 0) {
+  return new Promise<Array<{ address: string; family: number }>>((resolve, reject) => lookup('push.example.test', { all: true, family }, (error, addresses) => error ? reject(error) : resolve(addresses as Array<{ address: string; family: number }>)));
 }
 function lookupOne(lookup: Lookup, family: 0 | 4 | 6) {
   return new Promise<{ address: string; family: number }>((resolve, reject) => lookup('push.example.test', { family }, (error, address, resolvedFamily) => error ? reject(error) : resolve({ address: String(address), family: Number(resolvedFamily) })));

@@ -128,3 +128,15 @@ tsc --noEmit
 - family 0 选择首个已验证地址，family 4/6 只选择匹配地址；不存在匹配 family 时返回错误，不跨族回退。
 - 所有 lookup 仅消费首次预解析得到的 pinned public 地址列表，不触发第二次 DNS。
 - 新增真实 `https.request` auto-family 路径测试：不再出现 `ERR_INVALID_IP_ADDRESS`，endpoint hostname 与 TLS `servername` 保持原始 `push.example.test`。
+
+## Fix round 4：Pinned lookup all + family 契约
+
+### RED 证据
+
+`pnpm --filter @xhs/domain exec vitest run src/push-endpoint-policy.spec.ts` 产生 2 个预期失败：`{ all: true, family: 4 }` 错误返回 IPv4 与 IPv6 两族地址；仅有 IPv4 时 `{ all: true, family: 6 }` 错误成功而未返回明确错误。
+
+### GREEN 证据
+
+同一测试命令通过：1 file、12 tests。`all: true` 现在以 family 0 返回全部 pinned 地址，以 family 4/6 只返回匹配的 `LookupAddress[]`；无匹配 family 时返回包含请求族的明确错误。标量 lookup、单次 DNS 与原 hostname/SNI 路径保持原测试覆盖。
+
+完整验证：domain 3 files / 18 tests、worker 12 files / 65 tests、api 5 files / 9 tests 全部通过；domain、worker、api typecheck 全部通过；worker 与 api build 通过。domain package 未定义 `build` script，执行对应命令明确返回 `None of the selected packages has a "build" script`，没有将其误报为成功。

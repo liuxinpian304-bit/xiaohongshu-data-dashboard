@@ -33,8 +33,13 @@ export class PushEndpointPolicy {
     const pinned = addresses.map((candidate) => ({ address: candidate, family: isIP(candidate) as 4 | 6 }));
     const lookup = ((_hostname, options, callback) => {
       const request = typeof options === 'number' ? { family: options } : options;
-      if (request?.all) { callback(null, pinned); return; }
       const requestedFamily = request?.family ?? 0;
+      if (request?.all) {
+        const selected = requestedFamily === 0 ? pinned : pinned.filter((candidate) => candidate.family === requestedFamily);
+        if (!selected.length) { (callback as (error: Error) => void)(new Error(`pinned push endpoint has no address for family ${requestedFamily}`)); return; }
+        callback(null, selected);
+        return;
+      }
       const selected = requestedFamily === 0 ? pinned[0] : pinned.find((candidate) => candidate.family === requestedFamily);
       if (!selected) { (callback as (error: Error) => void)(new Error(`pinned push endpoint has no address for family ${requestedFamily}`)); return; }
       callback(null, selected.address, selected.family);

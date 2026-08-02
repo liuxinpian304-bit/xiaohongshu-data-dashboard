@@ -12,6 +12,7 @@ describe('admin authentication', () => {
   let app: INestApplication;
   beforeAll(async () => {
     process.env.ADMIN_PASSWORD_HASH = await argon2.hash('correct horse', { type: argon2.argon2id });
+    process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = module.createNestApplication();
     configureApp(app);
@@ -22,6 +23,7 @@ describe('admin authentication', () => {
   async function login(agent = request.agent(app.getHttpServer())) {
     const pre = await agent.get('/auth/csrf').set('Sec-Fetch-Site', 'same-origin').set('Origin', 'http://127.0.0.1').expect(200);
     const response = await agent.post('/auth/login').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', pre.body.csrfToken).send({ password: 'correct horse' });
+    expect(response.status).toBe(201);
     return { agent, response, preToken: pre.body.csrfToken as string };
   }
 
@@ -94,5 +96,22 @@ describe('admin authentication', () => {
     const first = await login(); const oldCookie = first.response.headers['set-cookie'][0].split(';')[0];
     await login(first.agent);
     await request(app.getHttpServer()).get('/accounts').set('Cookie', oldCookie).expect(401);
+  });
+
+  it('rejects unknown login fields through executable DTO validation', async () => {
+    const agent = request.agent(app.getHttpServer());
+    const pre = await agent.get('/auth/csrf').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').expect(200);
+    await agent.post('/auth/login').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', pre.body.csrfToken).send({ password: 'correct horse', admin: true }).expect(400);
+  });
+
+  it('validates notification account and path identifiers as UUIDs', async () => {
+    const { agent, response } = await login();
+    await agent.get('/notifications?accountId=not-a-uuid').expect(400);
+    await agent.patch('/notifications/not-a-uuid/read').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', response.body.csrfToken).expect(400);
+  });
+
+  it('rejects malformed accountIds arrays instead of silently ignoring them', async () => {
+    const { agent } = await login();
+    await agent.get('/comments').query({ accountIds: ['not-a-uuid'] }).expect(400);
   });
 });

@@ -5,4 +5,5 @@ export function trustProxySetting(env: Record<string, string | undefined>): fals
   if (cidrs) { const entries = cidrs.split(',').map((x) => x.trim()).filter(Boolean); if (!entries.length || entries.some((x) => x === '*' || !/^[0-9a-f:.]+(?:\/\d{1,3})?$/i.test(x))) throw new Error('invalid TRUST_PROXY_CIDRS'); return entries; }
   return false;
 }
-export function normalizeClientIp(ip: string) { const value = ip.trim().toLowerCase(); return value.startsWith('::ffff:') ? value.slice(7) : value; }
+export function normalizeClientIp(ip: string) { return ipaddr.process(ip.trim()).toString(); }
+import * as ipaddr from 'ipaddr.js';

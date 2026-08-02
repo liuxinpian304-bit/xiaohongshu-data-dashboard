@@ -4,12 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { AuditService } from '../common/audit.service';
 import { page } from '../common/pagination.dto';
 import { CredentialCipher } from '../security/credential-cipher';
-import type { XhsConnector } from '@xhs/connector';
-export const ACCOUNT_CONNECTOR = Symbol('ACCOUNT_CONNECTOR');
+import { ConnectorRegistry } from './connector-registry';
 
 @Injectable()
 export class AccountsService {
-  constructor(@Inject(AuditService) private readonly audit: AuditService, @Optional() @Inject(ACCOUNT_CONNECTOR) private readonly connector?: Pick<XhsConnector, 'revokeAuthorization'>) {}
+  constructor(@Inject(AuditService) private readonly audit: AuditService, @Optional() @Inject(ConnectorRegistry) private readonly connectors = new ConnectorRegistry()) {}
   async list(cursor: string | undefined, limit: number) {
     const items = await prisma.account.findMany({ where: cursor ? { id: { gt: cursor } } : undefined, orderBy: { id: 'asc' }, take: limit + 1, include: { capabilities: true } });
     return page(items, limit);
@@ -49,8 +48,8 @@ export class AccountsService {
   async remove(id: string, retainData: boolean) {
     const account = await prisma.account.findUnique({ where: { id }, include: { capabilities: true } });
     if (!account) throw new NotFoundException('managed account not found');
-    const connector = account.connectorType === 'mock' ? this.connector : undefined;
-    const officialRevocationSupported = typeof connector?.revokeAuthorization === 'function';
+    const connector = this.connectors.resolve(account.connectorType); const capabilities = connector ? await connector.getCapabilities() : undefined;
+    const officialRevocationSupported = capabilities?.revokeAuthorization === true && typeof connector?.revokeAuthorization === 'function';
     if (officialRevocationSupported) await connector!.revokeAuthorization!({ accountId: id });
     await prisma.$transaction(async (tx) => {
       await tx.credential.deleteMany({ where: { accountId: id } });

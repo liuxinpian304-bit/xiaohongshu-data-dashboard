@@ -17,4 +17,7 @@ describe('admin password policy', () => {
     const weak = await argon2.hash('password', { type: argon2.argon2id, memoryCost: 8192, timeCost: 1 });
     expect(() => validateAdminPasswordHash(weak)).toThrow('parameters');
   });
+  it.each(['$argon2id$v=19$m=NaN,t=3,p=1$abc$def', '$argon2id$v=19$m=Infinity,t=3,p=1$abc$def', '$argon2id$v=19$m=65536.5,t=3,p=1$abc$def', '$argon2id$v=19$m=65536,t=0,p=1$abc$def'])('rejects malformed numeric parameters in %s', (hash) => {
+    expect(() => validateAdminPasswordHash(hash)).toThrow('parameters');
+  });
 });

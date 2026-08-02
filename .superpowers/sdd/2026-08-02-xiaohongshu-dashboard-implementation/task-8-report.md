@@ -71,3 +71,32 @@
 - Connector: 1 file, 11 tests passed.
 - API, worker, domain, database, and connector typechecks passed; API and worker builds passed.
 - PostgreSQL 18 container reported healthy; Prisma found 12 migrations and no pending migration.
+
+## Independent review fix round 2
+
+### RED evidence
+
+- CSV snapshot test updated/deleted matching rows after `export()` returned; the stream exposed `after-update` and lost the deleted row.
+- A 200-quote value stayed synchronous under a 450-byte limit because the estimate omitted CSV quote amplification and complete encoded fields.
+- OpenAPI contract checks found missing concrete dashboard/auth/mutation/notification success schemas and generic `object` pagination items.
+- Executable HTTP checks showed an unknown login field returned 201, malformed notification identifiers reached 500/404 paths, and malformed `accountIds` was ignored.
+- Connector routing tests showed the service did not resolve connector type or call capability-supported revocation; revocation errors did not preserve credentials.
+- Argon parameter validation accepted NaN, Infinity, and fractional values; equivalent expanded/compressed IPv6 forms produced different throttle keys.
+
+### GREEN implementation
+
+- CSV rows are now fetched and fully encoded inside one PostgreSQL `REPEATABLE READ` transaction into a mode-0600 temporary snapshot file. Exact UTF-8 bytes include every field, quote doubling, separators, and CRLF; no synchronous file can exceed `maxBytes`. The HTTP response streams only the immutable file and cleans it on close/error.
+- Added concrete OpenAPI models and success schemas for every Task 8 route, including auth, dashboard, account mutations, job control, notifications, push subscriptions, resource-specific paginated items, CSV, and background export.
+- Added class-validator/class-transformer DTOs, global whitelist ValidationPipe, explicit expected DTO pipes for test/runtime consistency, UUID path parsing, nested push-subscription validation, strict query validation, and UUID-array validation/filtering for `accountIds`.
+- Added an injectable connector registry keyed by connector type. Deletion resolves the registered connector, reads `getCapabilities().revokeAuthorization`, calls only supported revocation, reports unsupported otherwise, and preserves credentials on capability/revocation errors.
+- Argon parameters now require finite positive integers before minimum checks. Client IP keys use `ipaddr.js` canonicalization, including IPv4-mapped and equivalent IPv6 spellings.
+
+### Final verification
+
+- API unit/integration: 10 files, 38 tests passed.
+- API e2e: 2 files, 19 tests passed.
+- Connector: 1 file, 11 tests passed.
+- Database integration: 2 files, 5 tests passed.
+- Worker: 12 files, 65 tests passed.
+- API build passed; API, connector, database, and worker typechecks passed.
+- PostgreSQL 18 container was healthy; Prisma found 12 migrations and no pending migration; `git diff --check` passed.

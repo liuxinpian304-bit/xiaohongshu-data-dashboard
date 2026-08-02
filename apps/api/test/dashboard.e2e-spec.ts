@@ -40,5 +40,17 @@ describe('dashboard API', () => {
     expect(response.body.paths['/comments/export.csv'].get.responses['200'].content['text/csv']).toBeTruthy();
     expect(response.body.paths['/auth/login'].post.requestBody).toBeTruthy();
     expect(response.body.paths['/auth/login'].post.parameters).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'X-CSRF-Token', in: 'header' })]));
+    for (const [path, method] of [
+      ['/dashboard', 'get'], ['/auth/csrf', 'get'], ['/auth/login', 'post'], ['/auth/logout', 'post'],
+      ['/accounts/authorize', 'post'], ['/accounts/{id}/reauthorize', 'post'], ['/accounts/{id}/deactivate', 'patch'], ['/accounts/{id}', 'delete'],
+      ['/jobs/{id}/cancel', 'post'], ['/notifications', 'get'], ['/notifications/{id}/read', 'patch'], ['/notifications/push-subscriptions', 'post'],
+    ] as const) {
+      const success = Object.entries(response.body.paths[path][method].responses).find(([status]) => status.startsWith('2'))?.[1] as { content?: Record<string, { schema?: unknown }> } | undefined;
+      expect(success?.content?.['application/json']?.schema, `${method.toUpperCase()} ${path}`).toBeTruthy();
+    }
+    for (const [path, model] of [['/accounts', 'AccountDto'], ['/jobs', 'SyncJobDto'], ['/notes', 'NoteDto'], ['/comments', 'CommentDto'], ['/reports', 'ReportDto']] as const) {
+      expect(response.body.paths[path].get.responses['200'].content['application/json'].schema.properties.items.items.$ref).toBe(`#/components/schemas/${model}`);
+    }
+    expect(response.body.paths['/comments/export.csv'].get.responses['202'].content['application/json'].schema.$ref).toBe('#/components/schemas/BackgroundExportDto');
   });
 });

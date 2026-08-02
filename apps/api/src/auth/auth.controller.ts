@@ -4,7 +4,8 @@ import type { Request, Response } from 'express';
 import { object, stringField } from '../common/validation';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
-import type { LoginDto } from '../common/api.dto';
+import { LoginDto } from '../common/api.dto';
+import { dtoPipe } from '../common/dto.pipe';
 import { normalizeClientIp } from './proxy-config';
 
 @Controller('auth')
@@ -22,7 +23,7 @@ export class AuthController {
     return { csrfToken };
   }
   @Post('login')
-  async login(@Body() input: LoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async login(@Body(dtoPipe(LoginDto)) input: LoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
     this.requireSameOrigin(request);
     const header = request.headers['x-csrf-token']; const cookie = request.cookies.pre_auth_csrf;
     const a = Buffer.from(typeof header === 'string' ? header : ''); const b = Buffer.from(typeof cookie === 'string' ? cookie : '');

@@ -1,20 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
-
-import { NotificationsService } from './notifications.service';
-import type { PushSubscriptionDto } from './dto';
-
-@Controller('notifications')
-@UseGuards(AuthGuard)
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '../auth/auth.guard'; import { dtoPipe } from '../common/dto.pipe'; import { NotificationQueryDto, PushSubscriptionRequestDto } from '../common/api.dto'; import { NotificationsService } from './notifications.service';
+@Controller('notifications') @UseGuards(AuthGuard)
 export class NotificationsController {
-  constructor(private readonly notifications: NotificationsService) {}
-
-  @Get()
-  list(@Query('accountId') accountId?: string) { return this.notifications.list(accountId); }
-
-  @Patch(':id/read')
-  markRead(@Param('id') id: string) { return this.notifications.markRead(id); }
-
-  @Post('push-subscriptions')
-  subscribe(@Body() body: PushSubscriptionDto) { return this.notifications.subscribe(body); }
+  constructor(@Inject(NotificationsService) private readonly notifications: NotificationsService) {}
+  @Get() list(@Query(dtoPipe(NotificationQueryDto)) query: NotificationQueryDto) { return this.notifications.list(query.accountId); }
+  @Patch(':id/read') markRead(@Param('id', new ParseUUIDPipe()) id: string) { return this.notifications.markRead(id); }
+  @Post('push-subscriptions') subscribe(@Body(dtoPipe(PushSubscriptionRequestDto)) body: PushSubscriptionRequestDto) { return this.notifications.subscribe(body); }
 }

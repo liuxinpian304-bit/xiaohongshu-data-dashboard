@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 export type PageInfo = { nextCursor: string | null; hasMore: boolean };
-export function pagination(query: { cursor?: string; limit?: string }) {
+export function pagination(query: { cursor?: string; limit?: string | number }) {
   const limit = query.limit === undefined ? 50 : Number(query.limit);
   if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new BadRequestException('limit must be between 1 and 200');
   if (query.cursor && query.cursor.length > 200) throw new BadRequestException('invalid cursor');

@@ -69,6 +69,8 @@ export class SyncRepository {
       const capturedDates = backfillBusinessDates(metrics);
       const backfillId = createHash('sha256').update(`${jobId}\0${note.id}\0${capturedDates.join(',')}`).digest('hex').slice(0, 32);
       const source = metrics[0]?.source ?? (connectorType === 'mock' ? 'mock' : 'official');
+      const expectedSource = connectorType === 'mock' ? 'mock' : 'official';
+      if (source !== expectedSource || metrics.some((metric) => metric.source !== expectedSource)) throw new Error('metric source does not match connector source');
       const semantics = NOTE_METRIC_DEFINITIONS[source];
       const definitions = [
         ['views', '浏览量', semantics.views], ['likes', '点赞量', semantics.likes], ['comments', '评论量', semantics.comments],
@@ -81,10 +83,14 @@ export class SyncRepository {
         });
         for (const metric of metrics) {
           const metadata = metric.metricMetadata?.[key];
+          const identity = { noteId: note.id, metricDefinitionId: definition.id, capturedAt: new Date(metric.capturedAt) };
+          const existing = await tx.metricSnapshot.findUnique({ where: { noteId_metricDefinitionId_capturedAt: identity } });
+          const intendedWindowStart = metadata?.windowStart ? new Date(metadata.windowStart) : null; const intendedWindowEnd = metadata?.windowEnd ? new Date(metadata.windowEnd) : null;
+          if (existing && (existing.source !== metric.source || existing.aggregation !== (metadata?.aggregation ?? aggregation) || existing.aggregationVersion !== (metadata?.aggregationVersion ?? aggregationVersion) || existing.windowStart?.getTime() !== intendedWindowStart?.getTime() || existing.windowEnd?.getTime() !== intendedWindowEnd?.getTime() || existing.authoritativePeriod !== (metadata?.authoritativePeriod ?? false))) throw new Error('metric snapshot semantic conflict');
           await tx.metricSnapshot.upsert({
-            where: { noteId_metricDefinitionId_capturedAt: { noteId: note.id, metricDefinitionId: definition.id, capturedAt: new Date(metric.capturedAt) } },
-            create: { noteId: note.id, metricDefinitionId: definition.id, availability: 'available', value: metric[key], capturedAt: new Date(metric.capturedAt), source: metric.source, aggregation: metadata?.aggregation ?? aggregation, aggregationVersion: metadata?.aggregationVersion ?? aggregationVersion, windowStart: metadata?.windowStart ? new Date(metadata.windowStart) : null, windowEnd: metadata?.windowEnd ? new Date(metadata.windowEnd) : null, authoritativePeriod: metadata?.authoritativePeriod ?? false },
-            update: { availability: 'available', value: metric[key], source: metric.source },
+            where: { noteId_metricDefinitionId_capturedAt: identity },
+            create: { noteId: note.id, metricDefinitionId: definition.id, availability: 'available', value: metric[key], capturedAt: new Date(metric.capturedAt), source: metric.source, aggregation: metadata?.aggregation ?? aggregation, aggregationVersion: metadata?.aggregationVersion ?? aggregationVersion, windowStart: intendedWindowStart, windowEnd: intendedWindowEnd, authoritativePeriod: metadata?.authoritativePeriod ?? false },
+            update: { availability: 'available', value: metric[key] },
           });
         }
       }

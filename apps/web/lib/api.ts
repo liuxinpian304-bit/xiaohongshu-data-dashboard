@@ -92,6 +92,7 @@ export async function collectCursorPages<T>(load: (cursor: string | null) => Pro
     if (pages++ >= 1_000 || items.length >= 100_000) return { status: 'error', kind: 'server', message: '账号数量超出单次安全读取范围，请使用账号搜索缩小范围' } as const;
     const result = await load(cursor);
     if (result.status !== 'ok') return result;
+    if (items.length + result.data.items.length > 100_000) return { status: 'error', kind: 'server', message: '账号数量超出单次安全读取范围，请使用账号搜索缩小范围' } as const;
     items.push(...result.data.items);
     const next = result.data.pageInfo.hasMore ? result.data.pageInfo.nextCursor : null;
     if (result.data.pageInfo.hasMore && (!next || seen.has(next))) return { status: 'error', kind: 'server', message: '账号分页游标无效，请刷新后重试' } as const;

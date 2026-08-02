@@ -83,7 +83,7 @@ function seriesDeltas(snapshots: DashboardSnapshot[], start: Date, cutoff: Date)
     const inPeriod = items.filter(({ capturedAt }) => capturedAt >= start && capturedAt <= cutoff);
     const sequence = aggregation === 'cumulative_delta' ? [baseline!, ...inPeriod] : inPeriod;
     if (sequence.some((item) => !usable(item))) return { ...end, delta: null };
-    return { ...end, delta: aggregateMetricSeries(aggregation, sequence.map((item) => ({ value: Number(item.value), authoritativePeriod: item.authoritativePeriod, windowStart: item.windowStart ?? undefined, windowEnd: item.windowEnd ?? undefined })), { start, end: cutoff }) };
+    return { ...end, delta: aggregateMetricSeries(aggregation, sequence.map((item) => ({ value: Number(item.value), authoritativePeriod: item.authoritativePeriod, windowStart: item.windowStart ?? undefined, windowEnd: item.windowEnd ?? undefined })), { start, endExclusive: new Date(cutoff.getTime() + 1) }) };
   });
 }
 

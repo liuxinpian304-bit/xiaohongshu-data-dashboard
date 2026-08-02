@@ -293,6 +293,17 @@ describe('SyncService', () => {
     expect(await prisma.metricSnapshot.findUniqueOrThrow({ where: { id: snapshot.id } })).toMatchObject({ aggregation: 'cumulative_delta', aggregationVersion: 'official-v1' });
   });
 
+  it('rejects a wrong-source replay without mutating the historical snapshot', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'replay-account' } });
+    await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'replay-note', title: 'Replay', publishedAt: new Date() } });
+    await repository.startJob('replay-job', account.id);
+    const capturedAt = '2026-08-01T12:00:00.000Z';
+    await repository.saveMetrics('replay-job', 'official', 'replay-note', [{ noteId: 'replay-note', capturedAt, views: 10, likes: 2, comments: 1, source: 'official' }]);
+    const before = await prisma.metricSnapshot.findFirstOrThrow({ where: { note: { platformId: 'replay-note' }, metricDefinition: { key: 'views', source: 'official' } } });
+    await expect(repository.saveMetrics('replay-job', 'official', 'replay-note', [{ noteId: 'replay-note', capturedAt, views: 999, likes: 999, comments: 999, source: 'mock' }])).rejects.toThrow('source');
+    expect(await prisma.metricSnapshot.findUniqueOrThrow({ where: { id: before.id } })).toMatchObject({ value: before.value, source: 'official', aggregation: before.aggregation, aggregationVersion: before.aggregationVersion });
+  });
+
   it('clears unverifiable verification state after a successful retry', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
     await repository.startJob('job-recovered', account.id);

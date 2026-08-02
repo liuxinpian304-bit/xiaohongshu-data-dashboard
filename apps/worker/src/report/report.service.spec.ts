@@ -181,7 +181,7 @@ describe('ReportService', () => {
   });
 
   it.each(['cumulative_delta', 'sum_interval', 'period_end', 'deduplicated_period'] as const)('generates a daily report only when %s semantic evidence is authoritative', async (aggregation) => {
-    const start = new Date('2026-08-01T00:00:00+08:00'); const end = new Date('2026-08-01T23:59:59.999+08:00');
+    const start = new Date('2026-08-01T00:00:00+08:00'); const end = new Date('2026-08-02T00:00:00+08:00');
     let saved: Parameters<ReportStore['createVersion']>[0] | undefined;
     const evidence = aggregation === 'cumulative_delta'
       ? [{ capturedAt: new Date('2026-07-31T23:00:00+08:00'), value: 10 }, { capturedAt: new Date('2026-08-01T23:00:00+08:00'), value: 15 }]
@@ -208,14 +208,27 @@ describe('ReportService', () => {
     expect(report.status).toBe('awaiting_data'); expect(saved?.metrics).toEqual([]); expect(report.missingFields).toContainEqual(expect.objectContaining({ reason: 'aggregation_unavailable' }));
   });
 
+  it('does not complete an empty non-cumulative required metric matrix', async () => {
+    let saved: Parameters<ReportStore['createVersion']>[0] | undefined;
+    const store: ReportStore = {
+      listAccountIds: async () => ['account-1'], listNoteIds: async () => ['note-1'],
+      listRequiredMetricDefinitions: async () => [{ key: 'views', id: 'views', aggregation: 'sum_interval' }],
+      loadCumulativeMetrics: async () => [],
+      createVersion: async (input) => { saved = input; return { id: 'report', accountId: input.accountId, version: 1, status: input.status }; },
+    };
+    const report = await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
+    expect(report.status).toBe('awaiting_data'); expect(saved?.metrics).toEqual([]);
+    expect(report.missingFields).toContainEqual(expect.objectContaining({ noteId: 'note-1', metricDefinitionId: 'views', reason: 'aggregation_unavailable' }));
+  });
+
   it.each([
-    ['weekly', new Date('2026-08-03T08:00:00+08:00'), new Date('2026-07-26T16:00:00Z'), new Date('2026-08-02T15:59:59.999Z')],
-    ['monthly', new Date('2026-08-15T08:00:00+08:00'), new Date('2026-06-30T16:00:00Z'), new Date('2026-07-31T15:59:59.999Z')],
+    ['weekly', new Date('2026-08-03T08:00:00+08:00'), new Date('2026-07-26T16:00:00Z'), new Date('2026-08-02T16:00:00.000Z')],
+    ['monthly', new Date('2026-08-15T08:00:00+08:00'), new Date('2026-06-30T16:00:00Z'), new Date('2026-07-31T16:00:00.000Z')],
   ] as const)('honors authoritative period-end evidence for %s boundaries', async (type, now, start, end) => {
     const store: ReportStore = {
       listAccountIds: async () => ['account-1'], listNoteIds: async () => ['note-1'],
       listRequiredMetricDefinitions: async () => [{ key: 'views', id: 'views', aggregation: 'period_end' }],
-      loadCumulativeMetrics: async () => [{ metricDefinitionId: 'views', noteId: 'note-1', aggregation: 'period_end', aggregationVersion: 'official-v1', capturedAt: end, value: 12, authoritativePeriod: true, windowStart: start, windowEnd: end }],
+      loadCumulativeMetrics: async () => [{ metricDefinitionId: 'views', noteId: 'note-1', aggregation: 'period_end', aggregationVersion: 'official-v1', capturedAt: new Date(end.getTime() - 1), value: 12, authoritativePeriod: true, windowStart: start, windowEnd: end }],
       createVersion: async (input) => ({ id: 'report', accountId: input.accountId, version: 1, status: input.status }),
     };
     expect((await new ReportService(store).generateReport(type, now)).status).toBe('complete');

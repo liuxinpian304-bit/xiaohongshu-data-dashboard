@@ -60,7 +60,7 @@ describe('DashboardService', () => {
 
   it('applies explicit interval, period-end and safe deduplicated semantics', async () => {
     const at = (day: number) => new Date(`2025-12-${day}T04:00:00Z`);
-    const windowStart = new Date('2025-12-28T16:00:00.000Z'); const windowEnd = new Date('2026-01-04T15:59:59.999Z');
+    const windowStart = new Date('2025-12-28T16:00:00.000Z'); const windowEnd = new Date('2026-01-04T16:00:00.000Z');
     const result = await new DashboardService(storeWith([
       snap({ noteId: 'sum', metricDefinitionId: 'sum', metricKey: 'sum', aggregation: 'sum_interval', capturedAt: at(30), value: '7', authoritativePeriod: true, windowStart, windowEnd }),
       snap({ noteId: 'end', metricDefinitionId: 'end', metricKey: 'end', aggregation: 'period_end', capturedAt: at(29), value: '8' }),

@@ -78,7 +78,7 @@ export class ReportService {
         return historical ? { ...definition, id: historical.metricDefinitionId, aggregation: historical.aggregation } : definition;
       });
       const missingFields = findMissingFields(noteIds, effectiveDefinitions, requiredDates, snapshots);
-      const aggregation = aggregateByMetric(snapshots, period.start, period.end);
+      const aggregation = aggregateByMetric(noteIds, effectiveDefinitions, snapshots, period.start, period.end);
       for (const missing of aggregation.missing) if (!missingFields.some((item) => item.noteId === missing.noteId && item.metricDefinitionId === missing.metricDefinitionId)) missingFields.push({ ...missing, date: requiredDates[0]!, reason: 'aggregation_unavailable' });
       const missingDates = [...new Set(missingFields.map((field) => field.date))].sort();
       const reportStatus: ReportStatus = missingDates.length ? 'awaiting_data' : 'complete';
@@ -188,7 +188,7 @@ export class PrismaReportStore implements ReportStore {
   }
 }
 
-function aggregateByMetric(snapshots: CumulativeSnapshot[], start: Date, end: Date) {
+function aggregateByMetric(noteIds: string[], definitions: RequiredMetricDefinition[], snapshots: CumulativeSnapshot[], start: Date, end: Date) {
   const groups = new Map<string, Map<string, CumulativeSnapshot[]>>();
   for (const snapshot of snapshots) {
     const notes = groups.get(snapshot.metricDefinitionId) ?? new Map<string, CumulativeSnapshot[]>();
@@ -196,13 +196,17 @@ function aggregateByMetric(snapshots: CumulativeSnapshot[], start: Date, end: Da
     groups.set(snapshot.metricDefinitionId, notes);
   }
   const metrics: Array<{ metricDefinitionId: string; value: number }> = []; const missing: Array<{ noteId: string; metricDefinitionId: string }> = [];
-  for (const [metricDefinitionId, notes] of groups) {
+  for (const definition of definitions) {
+    if (!definition.id) continue;
+    const metricDefinitionId = definition.id; const notes = groups.get(metricDefinitionId) ?? new Map<string, CumulativeSnapshot[]>();
     let total = 0; let available = true;
-    for (const [noteId, values] of notes) {
+    for (const noteId of noteIds) {
+      const values = notes.get(noteId) ?? [];
+      if (!values.length) { available = false; missing.push({ noteId, metricDefinitionId }); continue; }
       const ordered = values.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
-      const semantic = ordered[0]?.aggregation ?? 'cumulative_delta';
+      const semantic = ordered[0]?.aggregation ?? definition.aggregation ?? 'cumulative_delta';
       const hasRequiredBaseline = semantic !== 'cumulative_delta' || !ordered[0]?.aggregationVersion || ordered[0].capturedAt < start;
-      const value = hasRequiredBaseline ? aggregateMetricSeries(semantic, ordered.map((item) => ({ value: item.value, authoritativePeriod: item.authoritativePeriod, windowStart: item.windowStart ?? undefined, windowEnd: item.windowEnd ?? undefined })), { start, end }) : null;
+      const value = hasRequiredBaseline ? aggregateMetricSeries(semantic, ordered.map((item) => ({ value: item.value, authoritativePeriod: item.authoritativePeriod, windowStart: item.windowStart ?? undefined, windowEnd: item.windowEnd ?? undefined })), { start, endExclusive: new Date(end.getTime() + 1) }) : null;
       if (value === null) { available = false; missing.push({ noteId, metricDefinitionId }); } else total += value;
     }
     if (available) metrics.push({ metricDefinitionId, value: total });

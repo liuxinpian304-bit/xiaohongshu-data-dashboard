@@ -40,4 +40,12 @@ describe('requestJson', () => {
     const result = await collectCursorPages(async () => ({ status: 'ok', data: { items: [], pageInfo: { hasMore: true, nextCursor: 'same' } } }));
     expect(result).toMatchObject({ status: 'error', message: '账号分页游标无效，请刷新后重试' });
   });
+
+  it('rejects an overflowing final page before appending it', async () => {
+    let page = 0;
+    const result = await collectCursorPages(async () => page++ === 0
+      ? { status: 'ok', data: { items: Array(99_999).fill(1), pageInfo: { hasMore: true, nextCursor: 'last' } } }
+      : { status: 'ok', data: { items: [2, 3], pageInfo: { hasMore: false, nextCursor: null } } });
+    expect(result).toMatchObject({ status: 'error', message: '账号数量超出单次安全读取范围，请使用账号搜索缩小范围' });
+  });
 });

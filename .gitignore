@@ -1,0 +1,12 @@
+.worktrees/
+.superpowers/
+node_modules/
+.pnpm-store/
+.next/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/

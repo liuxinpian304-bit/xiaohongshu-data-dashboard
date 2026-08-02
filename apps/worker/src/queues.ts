@@ -19,6 +19,10 @@ export function createSyncAccountQueue(connection = redisConnection()) {
   return new Queue<{ accountId: string }>(SYNC_ACCOUNT_QUEUE, { connection });
 }
 
+export function enqueueAccountSync(queue: Queue<{ accountId: string }>, accountId: string, businessDate: string) {
+  return queue.add(SYNC_ACCOUNT_QUEUE, { accountId }, syncAccountJobOptions(accountId, businessDate));
+}
+
 export function redisConnection() {
   const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
   return { host: url.hostname, port: Number(url.port || 6379), password: url.password || undefined };

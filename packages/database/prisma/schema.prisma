@@ -23,18 +23,19 @@ enum MetricAvailability {
 }
 
 model Account {
-  id            String                @id @default(uuid()) @db.Uuid
-  connectorType String
-  platformId    String
-  displayName   String?
-  createdAt     DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime              @updatedAt @db.Timestamptz(3)
-  credentials   Credential[]
-  capabilities  ConnectorCapability[]
-  notes         Note[]
-  syncJobs      SyncJob[]
-  reports       Report[]
-  notifications Notification[]
+  id                      String                    @id @default(uuid()) @db.Uuid
+  connectorType           String
+  platformId              String
+  displayName             String?
+  createdAt               DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                  @updatedAt @db.Timestamptz(3)
+  credentials             Credential[]
+  capabilities            ConnectorCapability[]
+  notes                   Note[]
+  syncJobs                SyncJob[]
+  reports                 Report[]
+  notifications           Notification[]
+  commentSyncCompleteness CommentSyncCompleteness[]
 
   @@unique([connectorType, platformId])
 }
@@ -155,6 +156,20 @@ model SyncCheckpoint {
   syncJob   SyncJob  @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
 
   @@unique([syncJobId, stage, entityKey])
+}
+
+model CommentSyncCompleteness {
+  id             String   @id @default(uuid()) @db.Uuid
+  connectorType  String
+  accountId      String   @db.Uuid
+  notePlatformId String
+  status         String
+  cursor         String?
+  error          String?
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  account        Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([connectorType, accountId, notePlatformId])
 }
 
 model SyncStep {

@@ -35,6 +35,7 @@ describe('SyncService', () => {
   const repository = new SyncRepository(prisma);
 
   beforeEach(async () => {
+    await prisma.commentSyncCompleteness.deleteMany();
     await prisma.syncCheckpoint.deleteMany();
     await prisma.syncStep.deleteMany();
     await prisma.syncJob.deleteMany();
@@ -58,12 +59,14 @@ describe('SyncService', () => {
     connector.failAfterPage(2);
     await expect(service.runAccountSync('job-1', account.id)).rejects.toThrow('injected page failure');
     expect(await repository.countComments('note-1')).toBe(10);
+    expect(await repository.getCommentCompleteness('mock', account.id, 'note-1')).toBe('failed');
 
     connector.stopFailing();
     await service.runAccountSync('job-1', account.id);
 
     expect(await repository.countComments('note-1')).toBe(12);
     expect(await repository.getCommentCursor('job-1', 'note-1')).toBeNull();
+    expect(await repository.getCommentCompleteness('mock', account.id, 'note-1')).toBe('page_complete');
   });
 
   it('keeps comments idempotent when a completed job is run again', async () => {
@@ -99,7 +102,8 @@ describe('SyncService', () => {
 
     expect(result.status).toBe('unverifiable');
     expect(job.verificationStatus).toBe('unverifiable');
-    expect(await repository.countComments('note-1')).toBe(5);
+    expect(await repository.countComments('note-1')).toBe(10);
+    expect(await repository.getCommentCompleteness('mock', account.id, 'note-1')).toBe('unverifiable');
   });
 
   it('does not advance to later stages after a repeated notes cursor', async () => {
@@ -116,5 +120,52 @@ describe('SyncService', () => {
     expect(result.status).toBe('unverifiable');
     expect(await prisma.metricSnapshot.count()).toBe(0);
     expect(await prisma.comment.count()).toBe(0);
+  });
+
+  it('records authorization_required without requesting comments when capability is unavailable', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
+    const inner = new MockXhsConnector();
+    const connector: XhsConnector = {
+      getCapabilities: async () => ({ ...(await inner.getCapabilities()), comments: false }),
+      beginAuthorization: inner.beginAuthorization.bind(inner),
+      completeAuthorization: inner.completeAuthorization.bind(inner),
+      listNotes: inner.listNotes.bind(inner),
+      getNoteMetrics: inner.getNoteMetrics.bind(inner),
+      listComments: async () => { throw new Error('comments must not be requested'); },
+      listReplies: inner.listReplies.bind(inner),
+      refreshCredential: inner.refreshCredential.bind(inner),
+    };
+
+    await new SyncService(connector, repository).runAccountSync('job-no-comments', account.id);
+
+    expect(await repository.getCommentCompleteness('mock', account.id, 'note-1')).toBe('authorization_required');
+    expect(await repository.countComments('note-1')).toBe(0);
+  });
+
+  it('isolates notes with the same platform id across connectors', async () => {
+    const officialAccount = await prisma.account.create({ data: { connectorType: 'official', platformId: 'official-account' } });
+    const officialNote = await prisma.note.create({
+      data: { accountId: officialAccount.id, connectorType: 'official', platformId: 'note-1', title: 'Official note', publishedAt: new Date('2026-07-01') },
+    });
+    const mockAccount = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
+
+    await new SyncService(new MockXhsConnector(), repository).runAccountSync('job-isolated', mockAccount.id);
+
+    expect(await prisma.comment.count({ where: { noteId: officialNote.id } })).toBe(0);
+    expect(await prisma.comment.count({ where: { note: { connectorType: 'mock', platformId: 'note-1' }, parentPlatformId: null } })).toBe(12);
+    expect(await prisma.metricSnapshot.count({ where: { noteId: officialNote.id } })).toBe(0);
+  });
+
+  it('clears unverifiable verification state after a successful retry', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
+    await repository.startJob('job-recovered', account.id);
+    await repository.markUnverifiable('job-recovered', 'temporary repeated cursor');
+    await repository.advance('job-recovered', 'complete');
+
+    expect((await new SyncService(new MockXhsConnector(), repository).runAccountSync('job-recovered', account.id)).status).toBe('complete');
+
+    const job = await prisma.syncJob.findUniqueOrThrow({ where: { externalJobId: 'job-recovered' } });
+    expect(job.status).toBe('succeeded');
+    expect(job.verificationStatus).toBe('verified');
   });
 });

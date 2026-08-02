@@ -51,8 +51,7 @@ export class SyncService {
       const ok = await this.paginate(
         checkpoint?.cursor ?? null,
         (cursor) => this.connector.listNotes({ accountId: platformId, cursor }),
-        (items, cursor) => this.repository.saveNotesPage(jobId, accountId, key, items, cursor),
-        () => this.repository.markUnverifiable(jobId, `repeated notes cursor for ${key}`),
+        (items, cursor, repeated) => this.repository.saveNotesPage(jobId, accountId, key, items, cursor, repeated),
       );
       if (!ok) return false;
     }
@@ -63,21 +62,38 @@ export class SyncService {
   private async metrics(jobId: string, accountId: string) {
     for (const note of await this.repository.notes(accountId)) {
       if ((await this.repository.checkpoint(jobId, 'metrics', note.platformId))?.completed) continue;
-      await this.repository.saveMetrics(jobId, note.platformId, await this.connector.getNoteMetrics({ noteId: note.platformId }));
+      await this.repository.saveMetrics(jobId, note.connectorType, note.platformId, await this.connector.getNoteMetrics({ noteId: note.platformId }));
     }
     await this.repository.advance(jobId, 'comments');
   }
 
   private async comments(jobId: string, accountId: string) {
-    for (const note of await this.repository.notes(accountId)) {
+    const notes = await this.repository.notes(accountId);
+    if (!(await this.repository.commentsCapabilityEnabled(accountId))) {
+      await Promise.all(notes.map((note) => this.repository.markCommentIncomplete(note.connectorType, accountId, note.platformId, 'authorization_required')));
+      await this.repository.advance(jobId, 'replies');
+      return true;
+    }
+    for (const note of notes) {
       const checkpoint = await this.repository.checkpoint(jobId, 'comments', note.platformId);
       if (checkpoint?.completed) continue;
-      const ok = await this.paginate(
-        checkpoint?.cursor ?? null,
-        (cursor) => this.connector.listComments({ noteId: note.platformId, cursor }),
-        (items, cursor) => this.repository.saveCommentsPage(jobId, note.platformId, items, cursor),
-        () => this.repository.markUnverifiable(jobId, `repeated comments cursor for ${note.platformId}`),
-      );
+      let ok: boolean;
+      try {
+        ok = await this.paginate(
+          checkpoint?.cursor ?? null,
+          (cursor) => this.connector.listComments({ noteId: note.platformId, cursor }),
+          (items, cursor, repeated) => this.repository.saveCommentsPage(jobId, accountId, note.connectorType, note.platformId, items, cursor, repeated),
+        );
+      } catch (error) {
+        await this.repository.markCommentIncomplete(
+          note.connectorType,
+          accountId,
+          note.platformId,
+          isAuthorizationError(error) ? 'authorization_required' : 'failed',
+          error instanceof Error ? error.message : String(error),
+        );
+        throw error;
+      }
       if (!ok) return false;
     }
     await this.repository.advance(jobId, 'replies');
@@ -85,14 +101,14 @@ export class SyncService {
   }
 
   private async replies(jobId: string, accountId: string) {
-    for (const commentId of await this.repository.topLevelCommentIds(accountId)) {
+    for (const comment of await this.repository.topLevelComments(accountId)) {
+      const commentId = comment.platformId;
       const checkpoint = await this.repository.checkpoint(jobId, 'replies', commentId);
       if (checkpoint?.completed) continue;
       const ok = await this.paginate(
         checkpoint?.cursor ?? null,
         (cursor) => this.connector.listReplies({ commentId, cursor }),
-        (items, cursor) => this.repository.saveRepliesPage(jobId, commentId, items, cursor),
-        () => this.repository.markUnverifiable(jobId, `repeated replies cursor for ${commentId}`),
+        (items, cursor, repeated) => this.repository.saveRepliesPage(jobId, comment.connectorType, commentId, items, cursor, repeated),
       );
       if (!ok) return false;
     }
@@ -103,21 +119,25 @@ export class SyncService {
   private async paginate<T>(
     initialCursor: string | null,
     load: (cursor: string | null) => Promise<Page<T>>,
-    save: (items: T[], nextCursor: string | null) => Promise<void>,
-    repeated: () => Promise<void>,
+    save: (items: T[], nextCursor: string | null, repeated: boolean) => Promise<void>,
   ) {
     let cursor = initialCursor;
     const seen = new Set(cursor === null ? [] : [cursor]);
     while (true) {
       const page = await load(cursor);
-      if (page.nextCursor !== null && seen.has(page.nextCursor)) {
-        await repeated();
-        return false;
-      }
-      await save(page.items, page.nextCursor);
+      const repeated = page.nextCursor !== null && seen.has(page.nextCursor);
+      await save(page.items, page.nextCursor, repeated);
+      if (repeated) return false;
       if (page.nextCursor === null) return true;
       seen.add(page.nextCursor);
       cursor = page.nextCursor;
     }
   }
+}
+
+function isAuthorizationError(error: unknown) {
+  if (typeof error !== 'object' || error === null) return false;
+  if ('status' in error && (error.status === 401 || error.status === 403)) return true;
+  if ('statusCode' in error && (error.statusCode === 401 || error.statusCode === 403)) return true;
+  return 'response' in error && typeof error.response === 'object' && error.response !== null && 'status' in error.response && (error.response.status === 401 || error.response.status === 403);
 }

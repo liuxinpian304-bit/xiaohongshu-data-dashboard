@@ -2,6 +2,7 @@ import type { Comment, ConnectorCapabilities, Note, NoteMetric, Reply } from '@x
 import type { DatabaseClient, TransactionClient } from '@xhs/database';
 
 export type SyncStage = 'authorize' | 'notes' | 'metrics' | 'comments' | 'replies' | 'complete';
+export type CommentCompletenessStatus = 'partial' | 'page_complete' | 'failed' | 'authorization_required' | 'unverifiable';
 
 export class SyncRepository {
   constructor(private readonly db: DatabaseClient) {}
@@ -10,7 +11,7 @@ export class SyncRepository {
     return this.db.syncJob.upsert({
       where: { externalJobId },
       create: { externalJobId, accountId, status: 'running', startedAt: new Date() },
-      update: { status: 'running', error: null, completedAt: null },
+      update: { status: 'running', verificationStatus: 'verified', error: null, completedAt: null },
       include: { account: true },
     });
   }
@@ -39,7 +40,7 @@ export class SyncRepository {
     });
   }
 
-  async saveNotesPage(jobId: string, accountId: string, entityKey: string, notes: Note[], nextCursor: string | null) {
+  async saveNotesPage(jobId: string, accountId: string, entityKey: string, notes: Note[], nextCursor: string | null, unverifiable = false) {
     await this.db.$transaction(async (tx) => {
       for (const note of notes) {
         await tx.note.upsert({
@@ -49,12 +50,13 @@ export class SyncRepository {
         });
       }
       await this.upsertCheckpoint(tx, jobId, 'notes', entityKey, nextCursor);
+      if (unverifiable) await this.markUnverifiableInTransaction(tx, jobId, `repeated notes cursor for ${entityKey}`);
     });
   }
 
-  async saveMetrics(jobId: string, notePlatformId: string, metrics: NoteMetric[]) {
+  async saveMetrics(jobId: string, connectorType: string, notePlatformId: string, metrics: NoteMetric[]) {
     await this.db.$transaction(async (tx) => {
-      const note = await tx.note.findFirstOrThrow({ where: { platformId: notePlatformId } });
+      const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
       const definitions = [
         ['views', '浏览量'], ['likes', '点赞量'], ['comments', '评论量'],
       ] as const;
@@ -74,9 +76,9 @@ export class SyncRepository {
     });
   }
 
-  async saveCommentsPage(jobId: string, notePlatformId: string, comments: Comment[], nextCursor: string | null) {
+  async saveCommentsPage(jobId: string, accountId: string, connectorType: string, notePlatformId: string, comments: Comment[], nextCursor: string | null, unverifiable = false) {
     await this.db.$transaction(async (tx) => {
-      const note = await tx.note.findFirstOrThrow({ where: { platformId: notePlatformId } });
+      const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
       for (const comment of comments) {
         await tx.comment.upsert({
           where: { connectorType_platformId: { connectorType: comment.source, platformId: comment.platformId } },
@@ -85,13 +87,23 @@ export class SyncRepository {
         });
       }
       await this.upsertCheckpoint(tx, jobId, 'comments', notePlatformId, nextCursor);
+      await this.upsertCommentCompleteness(
+        tx,
+        connectorType,
+        accountId,
+        notePlatformId,
+        unverifiable ? 'unverifiable' : nextCursor === null ? 'page_complete' : 'partial',
+        nextCursor,
+        unverifiable ? `repeated comments cursor for ${notePlatformId}` : null,
+      );
+      if (unverifiable) await this.markUnverifiableInTransaction(tx, jobId, `repeated comments cursor for ${notePlatformId}`);
     });
   }
 
-  async saveRepliesPage(jobId: string, replyKey: string, replies: Reply[], nextCursor: string | null) {
+  async saveRepliesPage(jobId: string, connectorType: string, replyKey: string, replies: Reply[], nextCursor: string | null, unverifiable = false) {
     await this.db.$transaction(async (tx) => {
       for (const reply of replies) {
-        const note = await tx.note.findFirstOrThrow({ where: { platformId: reply.noteId } });
+        const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: reply.noteId } } });
         await tx.comment.upsert({
           where: { connectorType_platformId: { connectorType: reply.source, platformId: reply.platformId } },
           create: { noteId: note.id, connectorType: reply.source, platformId: reply.platformId, parentPlatformId: reply.parentCommentId, content: reply.content, publishedAt: new Date(reply.createdAt), source: reply.source },
@@ -99,16 +111,37 @@ export class SyncRepository {
         });
       }
       await this.upsertCheckpoint(tx, jobId, 'replies', replyKey, nextCursor);
+      if (unverifiable) await this.markUnverifiableInTransaction(tx, jobId, `repeated replies cursor for ${replyKey}`);
     });
   }
 
   async notes(accountId: string) { return this.db.note.findMany({ where: { accountId }, orderBy: { platformId: 'asc' } }); }
-  async topLevelCommentIds(accountId: string) {
-    const rows = await this.db.comment.findMany({ where: { note: { accountId }, parentPlatformId: null }, select: { platformId: true } });
-    return rows.map((row) => row.platformId);
+  async topLevelComments(accountId: string) {
+    return this.db.comment.findMany({
+      where: { note: { accountId }, parentPlatformId: null },
+      select: { platformId: true, connectorType: true },
+    });
   }
   async countComments(notePlatformId: string) { return this.db.comment.count({ where: { note: { platformId: notePlatformId }, parentPlatformId: null } }); }
   async getCommentCursor(jobId: string, notePlatformId: string) { return (await this.checkpoint(jobId, 'comments', notePlatformId))?.cursor ?? null; }
+  async getCommentCompleteness(connectorType: string, accountId: string, notePlatformId: string) {
+    return (await this.db.commentSyncCompleteness.findUnique({
+      where: { connectorType_accountId_notePlatformId: { connectorType, accountId, notePlatformId } },
+      select: { status: true },
+    }))?.status ?? null;
+  }
+  async commentsCapabilityEnabled(accountId: string) {
+    return (await this.db.connectorCapability.findUnique({
+      where: { accountId_capability: { accountId, capability: 'comments' } }, select: { enabled: true },
+    }))?.enabled ?? false;
+  }
+  async markCommentIncomplete(connectorType: string, accountId: string, notePlatformId: string, status: Exclude<CommentCompletenessStatus, 'partial' | 'page_complete'>, error?: string) {
+    await this.db.commentSyncCompleteness.upsert({
+      where: { connectorType_accountId_notePlatformId: { connectorType, accountId, notePlatformId } },
+      create: { connectorType, accountId, notePlatformId, status, cursor: null, error: error ?? null },
+      update: { status, error: error ?? null },
+    });
+  }
 
   async markUnverifiable(jobId: string, reason: string) {
     await this.db.syncJob.update({ where: { externalJobId: jobId }, data: { status: 'failed', verificationStatus: 'unverifiable', error: reason } });
@@ -126,6 +159,21 @@ export class SyncRepository {
       where: { syncJobId_stage_entityKey: { syncJobId: job.id, stage, entityKey } },
       create: { syncJobId: job.id, stage, entityKey, cursor, completed: cursor === null },
       update: { cursor, completed: cursor === null },
+    });
+  }
+
+  private async upsertCommentCompleteness(tx: TransactionClient, connectorType: string, accountId: string, notePlatformId: string, status: CommentCompletenessStatus, cursor: string | null, error: string | null) {
+    await tx.commentSyncCompleteness.upsert({
+      where: { connectorType_accountId_notePlatformId: { connectorType, accountId, notePlatformId } },
+      create: { connectorType, accountId, notePlatformId, status, cursor, error },
+      update: { status, cursor, error },
+    });
+  }
+
+  private async markUnverifiableInTransaction(tx: TransactionClient, jobId: string, reason: string) {
+    await tx.syncJob.update({
+      where: { externalJobId: jobId },
+      data: { status: 'failed', verificationStatus: 'unverifiable', error: reason },
     });
   }
 }

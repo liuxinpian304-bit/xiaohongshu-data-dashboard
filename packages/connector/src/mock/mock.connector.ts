@@ -29,11 +29,8 @@ export class MockXhsConnector implements XhsConnector {
     };
   }
 
-  async beginAuthorization(input: { redirectUri: string }): Promise<AuthorizationRequest> {
-    const url = new URL('https://authorization.mock.invalid/authorize');
-    url.searchParams.set('redirect_uri', input.redirectUri);
-    url.searchParams.set('state', MOCK_STATE);
-    return { authorizationUrl: url.toString(), state: MOCK_STATE, source: 'mock' };
+  async beginAuthorization(_input: { redirectUri: string }): Promise<AuthorizationRequest> {
+    return { authorizationUrl: 'mock:authorization', state: MOCK_STATE, source: 'mock' };
   }
 
   async completeAuthorization(input: { code: string; state: string }): Promise<Credential> {

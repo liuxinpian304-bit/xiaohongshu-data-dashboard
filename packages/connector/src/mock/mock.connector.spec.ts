@@ -75,6 +75,25 @@ describe('MockXhsConnector', () => {
     expect(credential).toMatchObject({ source: 'mock' });
     expect(refreshed).toMatchObject({ source: 'mock' });
   });
+
+  it('returns an explicitly non-navigable mock authorization sentinel', async () => {
+    const connector = new MockXhsConnector();
+
+    const request = await connector.beginAuthorization({ redirectUri: 'https://app.test/callback' });
+
+    expect(request.authorizationUrl).toBe('mock:authorization');
+  });
+
+  it.each([
+    { code: 'code', state: 'wrong-state' },
+    { code: '', state: 'mock-authorization-state' },
+  ])('rejects an invalid mock authorization response: $code/$state', async (input) => {
+    const connector = new MockXhsConnector();
+
+    await expect(connector.completeAuthorization(input)).rejects.toThrow(
+      'Invalid mock authorization response',
+    );
+  });
 });
 
 async function collectPages<T>(

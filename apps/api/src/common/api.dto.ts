@@ -21,7 +21,7 @@ export class CommentQueryDto extends AccountQueryDto {
   @IsOptional() @IsISO8601({ strict: true, strictSeparator: true }) @ApiPropertyOptional({ type: String, format: 'date-time' }) from?: string;
   @IsOptional() @IsISO8601({ strict: true, strictSeparator: true }) @ApiPropertyOptional({ type: String, format: 'date-time' }) to?: string;
 }
-export class DashboardQueryDto { @IsOptional() @IsIn(['daily', 'weekly', 'monthly']) @ApiPropertyOptional({ type: String, enum: ['daily', 'weekly', 'monthly'] }) period?: string; }
+export class DashboardQueryDto { @IsOptional() @IsIn(['daily', 'weekly', 'monthly']) @ApiPropertyOptional({ type: String, enum: ['daily', 'weekly', 'monthly'] }) period?: string; @IsOptional() @IsUUID() @ApiPropertyOptional({ type: String, format: 'uuid' }) accountId?: string; }
 export class PushKeysDto { @IsString() @MinLength(1) @MaxLength(4096) @ApiProperty({ type: String }) p256dh!: string; @IsString() @MinLength(1) @MaxLength(4096) @ApiProperty({ type: String }) auth!: string; }
 export class PushSubscriptionRequestDto { @IsUUID() @ApiProperty({ type: String, format: 'uuid' }) accountId!: string; @IsString() @MaxLength(4096) @ApiProperty({ type: String, format: 'uri' }) endpoint!: string; @ValidateNested() @Type(() => PushKeysDto) @ApiProperty({ type: PushKeysDto }) keys!: PushKeysDto; }
 export class NotificationQueryDto extends PaginationQueryDto { @IsOptional() @IsUUID() @ApiPropertyOptional({ type: String, format: 'uuid' }) accountId?: string; }
@@ -37,7 +37,18 @@ export class MissingReportFieldDto { @ApiProperty({ type: String, format: 'uuid'
 export class ReportDto { @ApiProperty({ type: String, format: 'uuid' }) id!: string; @ApiProperty({ type: String, format: 'uuid' }) accountId!: string; @ApiProperty({ type: String, enum: ['daily', 'weekly', 'monthly'] }) reportType!: string; @ApiProperty({ type: String, format: 'date-time' }) periodStart!: string; @ApiProperty({ type: String, format: 'date-time' }) periodEnd!: string; @ApiProperty({ type: Number }) version!: number; @ApiProperty({ type: String, enum: ['complete', 'awaiting_data'] }) status!: string; @ApiProperty({ type: 'array', items: { type: 'string', format: 'date' } }) missingDates!: string[]; @ApiProperty({ type: [MissingReportFieldDto] }) missingFields!: MissingReportFieldDto[]; @ApiProperty({ type: String, nullable: true }) backfillId!: string | null; @ApiProperty({ type: String, nullable: true }) rebuildJobId!: string | null; @ApiProperty({ type: String, format: 'uuid', nullable: true }) previousReportId!: string | null; @ApiProperty({ type: String, nullable: true }) rebuildReason!: string | null; @ApiProperty({ type: String, format: 'date-time' }) generatedAt!: string; @ApiProperty({ type: [ReportMetricDto] }) metrics!: ReportMetricDto[]; }
 export class NotificationDto { @ApiProperty({ type: String, format: 'uuid' }) id!: string; @ApiProperty({ type: String }) eventId!: string; @ApiProperty({ type: String, format: 'uuid' }) accountId!: string; @ApiProperty({ type: String, enum: ['sync_completed', 'sync_failed', 'authorization_expired', 'new_comment', 'comment_sync_incomplete', 'report_generated', 'report_rebuilt'] }) type!: string; @ApiProperty({ type: String }) title!: string; @ApiProperty({ type: String }) body!: string; @ApiProperty({ type: String }) link!: string; @ApiProperty({ type: String, format: 'date-time', nullable: true }) readAt!: string | null; @ApiProperty({ type: String, format: 'date-time' }) createdAt!: string; }
 export class DashboardCardDto { @ApiProperty({ type: String }) key!: string; @ApiProperty({ type: String, nullable: true }) value!: string | null; @ApiProperty({ type: String, enum: ['zero', 'not_synced', 'awaiting_authorization', 'not_provided', 'available'] }) availability!: string; }
-export class DashboardResponseDto { @ApiProperty({ type: String, enum: ['daily', 'weekly', 'monthly'] }) period!: string; @ApiProperty({ type: [DashboardCardDto] }) cards!: DashboardCardDto[]; }
+export class DashboardTrendPointDto { @ApiProperty({ type: String, format: 'date' }) date!: string; @ApiProperty({ type: [DashboardCardDto] }) metrics!: DashboardCardDto[]; }
+export class DashboardRankedNoteDto { @ApiProperty({ type: String, format: 'uuid' }) id!: string; @ApiProperty({ type: String, format: 'uuid' }) accountId!: string; @ApiProperty({ type: String }) title!: string; @ApiProperty({ type: String, format: 'date-time' }) publishedAt!: string; @ApiProperty({ type: String }) metricKey!: string; @ApiProperty({ type: String }) value!: string; }
+export class DashboardResponseDto {
+  @ApiProperty({ type: String, enum: ['daily', 'weekly', 'monthly'] }) period!: string;
+  @ApiProperty({ type: String, format: 'date-time' }) periodStart!: string;
+  @ApiProperty({ type: String, format: 'date-time' }) periodEnd!: string;
+  @ApiProperty({ type: String, nullable: true }) source!: string | null;
+  @ApiProperty({ type: String, format: 'date-time', nullable: true }) lastSyncedAt!: string | null;
+  @ApiProperty({ type: [DashboardCardDto] }) cards!: DashboardCardDto[];
+  @ApiProperty({ type: [DashboardTrendPointDto] }) trend!: DashboardTrendPointDto[];
+  @ApiProperty({ type: [DashboardRankedNoteDto] }) rankedNotes!: DashboardRankedNoteDto[];
+}
 export class AuthCsrfResponseDto { @ApiProperty({ type: String }) csrfToken!: string; }
 export class AuthLoginResponseDto extends AuthCsrfResponseDto { @ApiProperty({ type: Number }) expiresIn!: number; }
 export class OkResponseDto { @ApiProperty({ type: Boolean }) ok!: boolean; }

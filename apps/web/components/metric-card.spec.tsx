@@ -30,6 +30,13 @@ describe('MetricCard', () => {
     expect(screen.getByText('点赞')).toBeInTheDocument();
   });
 
+  it('renders an explicitly available zero as zero', () => {
+    render(<MetricCard label="评论" value="0" availability="zero" />);
+
+    expect(screen.getByText('0')).toBeInTheDocument();
+    expect(screen.queryByText('尚未同步')).not.toBeInTheDocument();
+  });
+
   it('does not expose non-finite numeric values', () => {
     render(<MetricCard label="曝光" value={Number.POSITIVE_INFINITY} availability="available" />);
 

@@ -37,7 +37,7 @@ export function configureApp(app: INestApplication) {
   for (const path of ['/notes', '/comments', '/comments/export.csv', '/reports']) addParameters(path, [['accountId', 'query', false, 'uuid']]);
   for (const path of ['/comments', '/comments/export.csv']) addParameters(path, [['noteId', 'query', false, 'uuid'], ['from', 'query', false, 'date-time'], ['to', 'query', false, 'date-time']]);
   for (const path of ['/comments', '/comments/export.csv']) { const operation = document.paths[path]?.get; if (operation) operation.parameters = [...(operation.parameters ?? []), { name: 'accountIds', in: 'query', required: false, schema: { type: 'array', items: { type: 'string', format: 'uuid' } } }]; }
-  addParameters('/dashboard', [['period', 'query', false, undefined, ['daily', 'weekly', 'monthly']]]);
+  addParameters('/dashboard', [['period', 'query', false, undefined, ['daily', 'weekly', 'monthly']], ['accountId', 'query', false, 'uuid']]);
   const body = (schema: string) => ({ required: true, content: { 'application/json': { schema: { $ref: schema } } } });
   const success = (schema: string, description = 'Success') => ({ description, content: { 'application/json': { schema: { $ref: schema } } } });
   const page = (item: string) => ({ description: 'Cursor page', content: { 'application/json': { schema: { type: 'object', required: ['items', 'pageInfo'], properties: { items: { type: 'array', items: { $ref: item } }, pageInfo: { $ref: getSchemaPath(PageInfoDto) } } } } } });

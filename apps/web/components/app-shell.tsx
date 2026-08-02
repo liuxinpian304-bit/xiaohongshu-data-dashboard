@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import React, { useState, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 type NavItem = { href: string; label: string; icon: IconName };
 type IconName = 'overview' | 'account' | 'job' | 'note' | 'comment' | 'report' | 'notification' | 'settings' | 'menu';
@@ -47,17 +47,55 @@ function NavLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void 
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const openDrawer = (trigger: HTMLButtonElement) => {
+    lastTriggerRef.current = trigger;
+    setDrawerOpen(true);
+  };
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeButtonRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      lastTriggerRef.current?.focus();
+    };
+  }, [drawerOpen]);
+
+  const handleDrawerKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setDrawerOpen(false);
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]')];
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="主导航">
+      <aside className="sidebar" aria-label="主导航" aria-hidden={drawerOpen || undefined} inert={drawerOpen || undefined}>
         <Link className="brand" href="/dashboard" aria-label="数据驾驶舱总览"><span className="brand-mark" />数据驾驶舱</Link>
         <nav className="sidebar-nav">{navigation.map((item) => <NavLink item={item} key={item.href} />)}</nav>
         <NavLink item={{ href: '/settings', label: '设置', icon: 'settings' }} />
       </aside>
 
-      <header className="mobile-header">
-        <button className="icon-button" type="button" onClick={() => setDrawerOpen(true)} aria-label="打开导航"><Icon name="menu" /></button>
+      <header className="mobile-header" aria-hidden={drawerOpen || undefined} inert={drawerOpen || undefined}>
+        <button className="icon-button" type="button" onClick={(event) => openDrawer(event.currentTarget)} aria-label="打开导航" aria-expanded={drawerOpen} aria-controls="mobile-navigation-dialog"><Icon name="menu" /></button>
         <strong>数据驾驶舱</strong>
         <Link className="icon-button" href="/notifications" aria-label="查看通知"><Icon name="notification" /></Link>
       </header>
@@ -65,18 +103,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       {drawerOpen ? (
         <div className="drawer-layer">
           <button className="drawer-backdrop" aria-label="关闭导航" onClick={() => setDrawerOpen(false)} />
-          <aside className="drawer" aria-label="移动端导航">
-            <div className="drawer-heading"><strong>全部功能</strong><button type="button" onClick={() => setDrawerOpen(false)} aria-label="关闭">×</button></div>
+          <aside id="mobile-navigation-dialog" className="drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-navigation-title" onKeyDown={handleDrawerKeyDown}>
+            <div className="drawer-heading"><strong id="mobile-navigation-title">全部功能</strong><button ref={closeButtonRef} type="button" onClick={() => setDrawerOpen(false)} aria-label="关闭">×</button></div>
             <nav>{navigation.map((item) => <NavLink item={item} key={item.href} onNavigate={() => setDrawerOpen(false)} />)}<NavLink item={{ href: '/settings', label: '设置', icon: 'settings' }} onNavigate={() => setDrawerOpen(false)} /></nav>
           </aside>
         </div>
       ) : null}
 
-      <main className="workspace">{children}</main>
+      <main className="workspace" aria-hidden={drawerOpen || undefined} inert={drawerOpen || undefined}>{children}</main>
 
-      <nav className="bottom-nav" aria-label="移动端主导航">
+      <nav className="bottom-nav" aria-label="移动端主导航" aria-hidden={drawerOpen || undefined} inert={drawerOpen || undefined}>
         {mobilePrimary.map((item) => <NavLink item={item} key={item.href} />)}
-        <button className="nav-link" type="button" onClick={() => setDrawerOpen(true)}><Icon name="overview" /><span>更多</span></button>
+        <button className="nav-link" type="button" onClick={(event) => openDrawer(event.currentTarget)} aria-expanded={drawerOpen} aria-controls="mobile-navigation-dialog"><Icon name="overview" /><span>更多</span></button>
       </nav>
     </div>
   );

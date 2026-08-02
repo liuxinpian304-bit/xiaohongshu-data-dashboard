@@ -71,6 +71,12 @@ describe('dashboard API', () => {
     expect(schemas.ReportDto.properties.missingDates.items).toMatchObject({ type: 'string', format: 'date' });
     expect(schemas.ReportMetricDto.properties.availability.enum).toEqual(['zero', 'not_synced', 'awaiting_authorization', 'not_provided', 'available']);
     expect(schemas.DashboardResponseDto.properties.period.enum).toEqual(['daily', 'weekly', 'monthly']);
+    expect(schemas.DashboardResponseDto.properties.periodStart).toMatchObject({ type: 'string', format: 'date-time' });
+    expect(schemas.DashboardResponseDto.properties.periodEnd).toMatchObject({ type: 'string', format: 'date-time' });
+    expect(schemas.DashboardResponseDto.properties.lastSyncedAt).toMatchObject({ type: 'string', format: 'date-time', nullable: true });
+    expect(schemas.DashboardResponseDto.properties.source).toMatchObject({ type: 'string', nullable: true });
+    expect(schemas.DashboardResponseDto.properties.trend.items.$ref).toBe('#/components/schemas/DashboardTrendPointDto');
+    expect(schemas.DashboardResponseDto.properties.rankedNotes.items.$ref).toBe('#/components/schemas/DashboardRankedNoteDto');
     expect(schemas.NotificationDto.properties.type.enum).toContain('report_rebuilt');
     expect(schemas.NotificationDto.properties.eventId).not.toHaveProperty('format');
     for (const path of ['/accounts', '/jobs', '/notes', '/comments', '/reports', '/notifications']) {

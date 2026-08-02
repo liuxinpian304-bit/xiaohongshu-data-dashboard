@@ -1,55 +1,59 @@
 import { describe, expect, it } from 'vitest';
+import { completedCollectionJobWhere, DashboardService, type DashboardStore } from './dashboard.service';
 
-import { DashboardService, type DashboardStore } from './dashboard.service';
-
-const store: DashboardStore = {
-  async read() {
-    return {
-      definitions: [
-        { id: 'likes-id', key: 'likes' },
-        { id: 'views-id', key: 'views' },
-      ],
-      snapshots: [
-        { noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', availability: 'available', value: '7', capturedAt: new Date('2025-12-29T04:00:00Z'), source: 'official' },
-        { noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', availability: 'available', value: '10', capturedAt: new Date('2025-12-30T04:00:00Z'), source: 'official' },
-        { noteId: 'note-2', noteTitle: '第二条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-02T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', availability: 'zero', value: '0', capturedAt: new Date('2025-12-30T05:00:00Z'), source: 'official' },
-      ],
-      lastSyncedAt: new Date('2025-12-30T06:00:00Z'),
-    };
-  },
-};
+const snap = (overrides: Partial<any> = {}) => ({ noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', availability: 'available', value: '100', capturedAt: new Date('2025-12-28T10:00:00Z'), source: 'official', ...overrides });
+const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z')): DashboardStore => ({ async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞' }, { id: 'views-id', key: 'views', displayName: '访客' }], snapshots, lastSyncedAt }; } });
 
 describe('DashboardService', () => {
-  it('returns server-authoritative cross-year weekly boundaries and real metadata', async () => {
-    const result = await new DashboardService(store).get('weekly', undefined, new Date('2026-01-05T04:00:00Z'));
-
-    expect(result).toMatchObject({
-      period: 'weekly',
-      periodStart: '2025-12-28T16:00:00.000Z',
-      periodEnd: '2026-01-04T15:59:59.999Z',
-      source: 'official',
-      lastSyncedAt: '2025-12-30T06:00:00.000Z',
-    });
-    expect(result.cards.find((card) => card.key === 'likes')).toMatchObject({ value: '10', availability: 'available' });
-    expect(result.trend).toEqual([
-      { date: '2025-12-29', metrics: [{ key: 'likes', value: '7', availability: 'available' }] },
-      { date: '2025-12-30', metrics: [{ key: 'likes', value: '10', availability: 'available' }] },
+  it('only considers completed collection jobs for lastSyncedAt, never comment exports', () => {
+    expect(completedCollectionJobWhere('official', 'account-1')).toEqual(expect.objectContaining({ status: 'succeeded', currentStage: 'complete', accountId: 'account-1' }));
+    expect(completedCollectionJobWhere('official')).not.toEqual(expect.objectContaining({ currentStage: 'export_comments' }));
+  });
+  it('uses the pre-period baseline for cross-year weekly deltas and cumulative daily trend', async () => {
+    const store = storeWith([
+      snap(), snap({ value: '107', capturedAt: new Date('2025-12-29T04:00:00Z') }), snap({ value: '110', capturedAt: new Date('2025-12-30T04:00:00Z') }),
+      snap({ noteId: 'note-2', noteTitle: '第二条', value: '10' }), snap({ noteId: 'note-2', noteTitle: '第二条', value: '14', capturedAt: new Date('2025-12-30T05:00:00Z') }),
     ]);
-    expect(result.rankedNotes.map((note) => note.id)).toEqual(['note-1', 'note-2']);
+    const result = await new DashboardService(store).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'));
+    expect(result).toMatchObject({ periodStart: '2025-12-28T16:00:00.000Z', periodEnd: '2026-01-04T15:59:59.999Z', source: 'official' });
+    expect(result.cards.find(({ key }) => key === 'likes')).toMatchObject({ value: '14', availability: 'available' });
+    expect(result.trend.map((point) => point.metrics.find(({ key }) => key === 'likes')?.value)).toEqual([null, '14']);
+  });
+
+  it.each([
+    ['daily', new Date('2026-08-02T04:00:00Z'), '2026-07-31T15:00:00.000Z', '2026-08-01T12:00:00Z'],
+    ['monthly', new Date('2026-02-15T04:00:00Z'), '2025-12-31T15:00:00.000Z', '2026-01-31T12:00:00Z'],
+  ])('computes %s from a baseline before %s', async (period, now, baselineDate, endDate) => {
+    const result = await new DashboardService(storeWith([snap({ capturedAt: new Date(baselineDate), value: '50' }), snap({ capturedAt: new Date(endDate), value: '58' })])).get(period, undefined, 'official', now);
+    expect(result.cards.find(({ key }) => key === 'likes')?.value).toBe('8');
+  });
+
+  it('marks missing baselines unavailable and handles counter resets as post-reset additions', async () => {
+    const result = await new DashboardService(storeWith([
+      snap({ noteId: 'missing', capturedAt: new Date('2025-12-30T04:00:00Z'), value: '9' }),
+      snap({ noteId: 'reset', value: '100' }), snap({ noteId: 'reset', capturedAt: new Date('2025-12-29T05:00:00Z'), value: '120' }), snap({ noteId: 'reset', capturedAt: new Date('2025-12-30T05:00:00Z'), value: '4' }),
+    ])).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'));
+    expect(result.cards.find(({ key }) => key === 'likes')).toMatchObject({ value: null, availability: 'not_synced' });
+    expect(result.rankedNotes).toEqual([expect.objectContaining({ id: 'reset', metricKey: 'likes', value: '24' })]);
+  });
+
+  it('uses one comparable metric for every ranked note', async () => {
+    const result = await new DashboardService(storeWith([
+      snap({ metricDefinitionId: 'views-id', metricKey: 'views', value: '10' }), snap({ metricDefinitionId: 'views-id', metricKey: 'views', value: '20', capturedAt: new Date('2025-12-30T04:00:00Z') }),
+      snap({ noteId: 'note-2', metricDefinitionId: 'views-id', metricKey: 'views', value: '30' }), snap({ noteId: 'note-2', metricDefinitionId: 'views-id', metricKey: 'views', value: '36', capturedAt: new Date('2025-12-30T05:00:00Z') }),
+      snap({ noteId: 'note-2', value: '1' }), snap({ noteId: 'note-2', value: '9', capturedAt: new Date('2025-12-30T05:00:00Z') }),
+    ])).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'));
+    expect(new Set(result.rankedNotes.map(({ metricKey }) => metricKey))).toEqual(new Set(['views']));
+    expect(result.rankedNotes[0]?.metricLabel).toBe('访客');
+  });
+
+  it('rejects mock and mixed source data', async () => {
+    await expect(new DashboardService(storeWith([])).get('daily', undefined, 'mock')).rejects.toThrow('official');
+    await expect(new DashboardService(storeWith([snap({ source: 'mock' })])).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'))).rejects.toThrow('mixed');
   });
 
   it('keeps a successful empty dataset distinct from fabricated values', async () => {
-    const emptyStore: DashboardStore = { async read() { return { definitions: [], snapshots: [], lastSyncedAt: null }; } };
-    const result = await new DashboardService(emptyStore).get('monthly', undefined, new Date('2026-01-15T04:00:00Z'));
-
-    expect(result).toMatchObject({
-      periodStart: '2025-11-30T16:00:00.000Z',
-      periodEnd: '2025-12-31T15:59:59.999Z',
-      source: null,
-      lastSyncedAt: null,
-      cards: [],
-      trend: [],
-      rankedNotes: [],
-    });
+    const result = await new DashboardService(storeWith([], null)).get('monthly', undefined, 'official', new Date('2026-01-15T04:00:00Z'));
+    expect(result).toMatchObject({ source: 'official', lastSyncedAt: null, cards: [{ key: 'likes', value: null }, { key: 'views', value: null }], trend: [], rankedNotes: [] });
   });
 });

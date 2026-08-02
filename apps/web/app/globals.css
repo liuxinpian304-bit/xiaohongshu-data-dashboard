@@ -142,6 +142,11 @@ button { color: inherit; }
   .drawer-heading { min-height: 48px; display: flex; justify-content: space-between; align-items: center; padding: 0 8px 10px; }
   .drawer-heading strong { font-size: 18px; }
   .drawer-heading button { width: 44px; height: 44px; border: 0; background: transparent; font-size: 28px; }
+  .account-filter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .account-filter label { font-size: 13px; font-weight: 700; }
+  .account-filter select, .account-filter button { min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: #fff; padding: 0 12px; }
+  .account-filter button { color: #fff; background: var(--ink); }
+  .account-state { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
   .drawer nav { display: grid; gap: 4px; }
   .drawer .nav-link[data-active="true"] { color: #be2732; background: var(--accent-soft); }
   .dashboard-page { padding: 22px 16px 30px; }

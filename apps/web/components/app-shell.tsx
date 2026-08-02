@@ -48,6 +48,7 @@ function NavLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void 
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const openDrawer = (trigger: HTMLButtonElement) => {
@@ -60,7 +61,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     closeButtonRef.current?.focus();
+    const keepFocusInside = (event: FocusEvent) => {
+      if (dialogRef.current && !dialogRef.current.contains(event.target as Node)) closeButtonRef.current?.focus();
+    };
+    document.addEventListener('focusin', keepFocusInside);
     return () => {
+      document.removeEventListener('focusin', keepFocusInside);
       document.body.style.overflow = previousOverflow;
       lastTriggerRef.current?.focus();
     };
@@ -102,8 +108,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {drawerOpen ? (
         <div className="drawer-layer">
-          <button className="drawer-backdrop" aria-label="关闭导航" onClick={() => setDrawerOpen(false)} />
-          <aside id="mobile-navigation-dialog" className="drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-navigation-title" onKeyDown={handleDrawerKeyDown}>
+          <div className="drawer-backdrop" aria-hidden="true" onMouseDown={() => setDrawerOpen(false)} />
+          <aside ref={dialogRef} id="mobile-navigation-dialog" className="drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-navigation-title" onKeyDown={handleDrawerKeyDown}>
             <div className="drawer-heading"><strong id="mobile-navigation-title">全部功能</strong><button ref={closeButtonRef} type="button" onClick={() => setDrawerOpen(false)} aria-label="关闭">×</button></div>
             <nav>{navigation.map((item) => <NavLink item={item} key={item.href} onNavigate={() => setDrawerOpen(false)} />)}<NavLink item={{ href: '/settings', label: '设置', icon: 'settings' }} onNavigate={() => setDrawerOpen(false)} /></nav>
           </aside>

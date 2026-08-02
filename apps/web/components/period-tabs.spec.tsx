@@ -11,10 +11,10 @@ afterEach(cleanup);
 
 describe('PeriodTabs', () => {
   it('marks the selected period and links every server period', () => {
-    render(<PeriodTabs period="weekly" />);
+    render(<PeriodTabs period="weekly" accountId="account-1" />);
 
     expect(screen.getByRole('link', { name: '周报' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: '日报' })).toHaveAttribute('href', '/dashboard?period=daily');
-    expect(screen.getByRole('link', { name: '月报' })).toHaveAttribute('href', '/dashboard?period=monthly');
+    expect(screen.getByRole('link', { name: '日报' })).toHaveAttribute('href', '/dashboard?period=daily&accountId=account-1');
+    expect(screen.getByRole('link', { name: '月报' })).toHaveAttribute('href', '/dashboard?period=monthly&accountId=account-1');
   });
 });

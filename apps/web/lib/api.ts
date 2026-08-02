@@ -11,7 +11,8 @@ export type DashboardCard = {
 };
 
 export type DashboardTrendPoint = { date: string; metrics: DashboardCard[] };
-export type DashboardRankedNote = { id: string; accountId: string; title: string; publishedAt: string; metricKey: string; value: string };
+export type DashboardRankedNote = { id: string; accountId: string; title: string; publishedAt: string; metricKey: string; metricLabel: string; value: string };
+export type Account = { id: string; connectorType: string; platformId: string; displayName: string | null; capabilities: Array<{ enabled: boolean }> };
 
 export type DashboardResponse = {
   period: DashboardPeriod;
@@ -71,9 +72,13 @@ async function apiGet<T>(path: string): Promise<ApiResult<T>> {
   });
 }
 
-export function getDashboard(period: DashboardPeriod) {
-  return apiGet<DashboardResponse>(`/dashboard?period=${period}`);
+export function getDashboard(period: DashboardPeriod, accountId?: string) {
+  const query = new URLSearchParams({ period, source: 'official' });
+  if (accountId) query.set('accountId', accountId);
+  return apiGet<DashboardResponse>(`/dashboard?${query}`);
 }
+
+export function getAccounts() { return apiGet<CursorPage<Account>>('/accounts?limit=200'); }
 
 export function getRecentNotifications(limit = 5) {
   return apiGet<CursorPage<Notification>>(`/notifications?limit=${limit}`);

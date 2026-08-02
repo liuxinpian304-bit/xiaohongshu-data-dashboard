@@ -7,5 +7,5 @@ import { DashboardQueryDto } from '../common/api.dto'; import { dtoPipe } from '
 @UseGuards(AuthGuard)
 export class DashboardController {
   constructor(@Inject(DashboardService) private readonly dashboard: DashboardService) {}
-  @Get() get(@Query(dtoPipe(DashboardQueryDto)) query: DashboardQueryDto) { return this.dashboard.get(query.period ?? 'daily', query.accountId); }
+  @Get() get(@Query(dtoPipe(DashboardQueryDto)) query: DashboardQueryDto) { return this.dashboard.get(query.period ?? 'daily', query.accountId, query.source ?? 'official'); }
 }

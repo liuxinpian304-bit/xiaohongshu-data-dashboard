@@ -32,4 +32,18 @@ describe('AppShell mobile drawer', () => {
     expect(trigger).toHaveFocus();
     expect(document.body).not.toHaveStyle({ overflow: 'hidden' });
   });
+
+  it('keeps programmatic focus inside and closes when the non-focusable backdrop is clicked', () => {
+    const { container } = render(<AppShell><button>页面按钮</button></AppShell>);
+    const trigger = screen.getByRole('button', { name: '打开导航' });
+    fireEvent.click(trigger);
+    const close = screen.getByRole('button', { name: '关闭' });
+    screen.getByRole('button', { name: '页面按钮', hidden: true }).focus();
+    expect(close).toHaveFocus();
+    const backdrop = container.querySelector('.drawer-backdrop')!;
+    expect(backdrop).not.toHaveAttribute('tabindex');
+    fireEvent.mouseDown(backdrop);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
 });

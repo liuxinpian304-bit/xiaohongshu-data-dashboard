@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { MetricCard } from '../../../components/metric-card';
 import { MetricTrendChart } from '../../../components/metric-trend-chart';
 import { PeriodTabs } from '../../../components/period-tabs';
-import { getDashboard, getRecentNotifications, type DashboardCard, type DashboardPeriod } from '../../../lib/api';
+import { getAccounts, getDashboard, getRecentNotifications, type DashboardCard, type DashboardPeriod } from '../../../lib/api';
 import { formatMetric, formatReportRange, formatShanghaiDateTime } from '../../../lib/format';
 
 const metricLabels: Record<string, string> = {
@@ -42,16 +42,22 @@ function chooseTrend(trend: Array<{ date: string; metrics: DashboardCard[] }>) {
   return { key, label: metricLabel(key), points };
 }
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ period?: string | string[] }> }) {
-  const period = normalizePeriod((await searchParams).period);
-  const [dashboardResult, notificationsResult] = await Promise.all([getDashboard(period), getRecentNotifications()]);
-  if (dashboardResult.status === 'unauthorized' || notificationsResult.status === 'unauthorized') redirect(`/login?next=${encodeURIComponent(`/dashboard?period=${period}`)}`);
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ period?: string | string[]; accountId?: string | string[] }> }) {
+  const params = await searchParams; const period = normalizePeriod(params.period); const requestedAccountId = typeof params.accountId === 'string' ? params.accountId : undefined;
+  const accountsResult = await getAccounts();
+  if (accountsResult.status === 'unauthorized') redirect(`/login?next=${encodeURIComponent(`/dashboard?period=${period}`)}`);
+  const officialAccounts = accountsResult.status === 'ok' ? accountsResult.data.items.filter(({ connectorType }) => connectorType === 'official') : [];
+  const invalidAccount = accountsResult.status === 'ok' && Boolean(requestedAccountId) && !officialAccounts.some(({ id }) => id === requestedAccountId);
+  const accountId = accountsResult.status === 'error' ? requestedAccountId : invalidAccount ? undefined : requestedAccountId;
+  const [dashboardResult, notificationsResult] = await Promise.all([getDashboard(period, accountId), getRecentNotifications()]);
+  const suffix = `${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
+  if (dashboardResult.status === 'unauthorized' || notificationsResult.status === 'unauthorized') redirect(`/login?next=${encodeURIComponent(`/dashboard?period=${period}${suffix}`)}`);
 
   if (dashboardResult.status === 'error') {
     return (
       <div className="dashboard-page">
-        <header className="dashboard-heading dashboard-heading--error"><div><h1>昨日数据</h1><p>按上海时区生成，官方数据未到齐时会明确标记。</p></div><PeriodTabs period={period} /></header>
-        <section className="load-error" role="alert"><span aria-hidden="true">!</span><h2>数据暂时无法加载</h2><p>{dashboardResult.message}，请检查服务状态后重试。</p><a href={`/dashboard?period=${period}`}>重新加载</a></section>
+        <header className="dashboard-heading dashboard-heading--error"><div><h1>昨日数据</h1><p>按上海时区生成，官方数据未到齐时会明确标记。</p></div><PeriodTabs period={period} accountId={accountId} /></header>
+        <section className="load-error" role="alert"><span aria-hidden="true">!</span><h2>数据暂时无法加载</h2><p>{dashboardResult.message}，请检查服务状态后重试。</p><a href={`/dashboard?period=${period}${suffix}`}>重新加载</a></section>
       </div>
     );
   }
@@ -66,13 +72,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     <div className="dashboard-page">
       <header className="dashboard-heading">
         <div><h1>昨日数据</h1><p>按上海时区生成，官方数据未到齐时会明确标记。</p></div>
-        <PeriodTabs period={period} />
+        <PeriodTabs period={period} accountId={accountId} />
+        <form className="account-filter" action="/dashboard" method="get"><input type="hidden" name="period" value={period} /><label htmlFor="dashboard-account">小红书账号</label><select id="dashboard-account" name="accountId" defaultValue={accountId ?? ''}><option value="">全部官方账号</option>{officialAccounts.map((account) => <option key={account.id} value={account.id}>{account.displayName || account.platformId}</option>)}</select><button type="submit">查看</button></form>
         <dl className="report-meta">
           <div><dt>统计日期</dt><dd>{formatReportRange(dashboard.periodStart, dashboard.periodEnd)}</dd></div>
           <div><dt>最后同步</dt><dd>{dashboard.lastSyncedAt ? formatShanghaiDateTime(dashboard.lastSyncedAt) : '尚无成功同步'}</dd></div>
           <div><dt>数据来源</dt><dd>{sourceLabel(dashboard.source)}</dd></div>
         </dl>
       </header>
+
+      {accountsResult.status === 'error' ? <section className="account-state" role="status">账号列表暂时无法加载，已保留当前筛选，请稍后重试。</section> : invalidAccount ? <section className="account-state" role="alert"><strong>所选账号不存在或尚未获得官方授权</strong><Link href="/accounts">检查账号授权</Link></section> : officialAccounts.length === 0 ? <section className="account-state"><strong>尚无已授权的官方账号</strong><span>请先到账号页完成官方 API 授权。</span><Link href="/accounts">管理账号</Link></section> : null}
 
       {cards.length ? (
         <section className="metric-rail" aria-label="核心指标">{cards.map(({ label, card }) => <MetricCard key={card.key} label={label} value={card.value} availability={card.availability} />)}</section>
@@ -97,12 +106,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
         <section className="panel ranking-panel">
           <div className="panel-heading"><div><h2>笔记榜单</h2><p>按当前周期的实际指标排序</p></div><Link href="/notes">查看笔记</Link></div>
-          {dashboard.rankedNotes.length ? <div className="ranking-table-wrap"><table className="ranking-table"><thead><tr><th>排名</th><th>笔记</th><th>指标</th><th>数值</th></tr></thead><tbody>{dashboard.rankedNotes.map((note, index) => <tr key={note.id}><td>{index + 1}</td><td><Link href={`/notes/${note.id}`}>{note.title}</Link></td><td>{metricLabel(note.metricKey)}</td><td>{formatMetric(note.value)}</td></tr>)}</tbody></table></div> : <div className="table-empty"><strong>暂无可排名的笔记</strong><span>本周期有可用指标后，榜单会自动更新。</span></div>}
+          {dashboard.rankedNotes.length ? <div className="ranking-table-wrap"><table className="ranking-table"><thead><tr><th>排名</th><th>笔记</th><th>统一指标</th><th>周期新增</th></tr></thead><tbody>{dashboard.rankedNotes.map((note, index) => <tr key={note.id}><td>{index + 1}</td><td><Link href={`/notes/${note.id}`}>{note.title}</Link></td><td>{metricLabel(note.metricKey)}</td><td>{formatMetric(note.value)}</td></tr>)}</tbody></table></div> : <div className="table-empty"><strong>暂无可排名的笔记</strong><span>本周期有可用指标后，榜单会自动更新。</span></div>}
         </section>
 
         <section className="panel notifications-panel">
           <div className="panel-heading"><div><h2>最新通知</h2><p>同步、评论与报告状态</p></div><Link href="/notifications">查看全部</Link></div>
-          {notificationsResult.status === 'error' ? <div className="compact-error" role="status"><strong>通知暂时无法加载</strong><span>{notificationsResult.message}</span><a href={`/dashboard?period=${period}`}>重新加载</a></div> : notificationsResult.data.items.length ? (
+          {notificationsResult.status === 'error' ? <div className="compact-error" role="status"><strong>通知暂时无法加载</strong><span>{notificationsResult.message}</span><a href={`/dashboard?period=${period}${suffix}`}>重新加载</a></div> : notificationsResult.data.items.length ? (
             <ul className="notification-list">{notificationsResult.data.items.map((item) => <li key={item.id}><span className="unread-dot" data-read={Boolean(item.readAt)} /><Link href={item.link || '/notifications'}><strong>{item.title}</strong><span>{item.body}</span></Link><time dateTime={item.createdAt}>{formatShanghaiDateTime(item.createdAt)}</time></li>)}</ul>
           ) : <div className="compact-empty"><strong>暂无通知</strong><span>新评论、同步结果和报告完成后会出现在这里。</span></div>}
         </section>

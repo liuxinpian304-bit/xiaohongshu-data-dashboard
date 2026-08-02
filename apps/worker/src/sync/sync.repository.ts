@@ -87,7 +87,7 @@ export class SyncRepository {
       });
       return { backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason: 'metric_snapshot_saved' };
     });
-    await this.onMetricSnapshotsCommitted?.(event);
+    try { await this.onMetricSnapshotsCommitted?.(event); } catch { /* pending outbox is retried by the worker scanner */ }
   }
 
   async saveCommentsPage(jobId: string, accountId: string, connectorType: string, notePlatformId: string, comments: Comment[], nextCursor: string | null, unverifiable = false) {

@@ -7,10 +7,10 @@ function storeWithSnapshots(snapshotDates: string[]): ReportStore {
   return {
     listAccountIds: async () => ['account-1'],
     listNoteIds: async () => ['note-1'],
-    listRequiredMetricDefinitionIds: async () => ['views'],
-    loadCumulativeMetrics: async () => snapshotDates.map((capturedAt, index) => ({
-      metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date(capturedAt), value: 100 + index * 25,
-    })),
+    listRequiredMetricDefinitions: async () => [{ key: 'views', id: 'views' }, { key: 'likes', id: 'likes' }, { key: 'comments', id: 'comments' }],
+    loadCumulativeMetrics: async () => snapshotDates.flatMap((capturedAt, index) => ['views', 'likes', 'comments'].map((metricDefinitionId) => ({
+      metricDefinitionId, noteId: 'note-1', capturedAt: new Date(capturedAt), value: 100 + index * 25,
+    }))),
     createVersion: async (input) => {
       const version = versions.length + 1;
       versions.push({ version, status: input.status });
@@ -58,7 +58,7 @@ describe('ReportService', () => {
     const store: ReportStore = {
       listAccountIds: async () => ['account-1'],
       listNoteIds: async () => ['note-a', 'note-b'],
-      listRequiredMetricDefinitionIds: async () => ['views'],
+      listRequiredMetricDefinitions: async () => [{ key: 'views', id: 'views' }],
       loadCumulativeMetrics: async () => [
         { metricDefinitionId: 'views', noteId: 'note-a', capturedAt: new Date('2026-08-01T00:15:00+08:00'), value: 100 },
         { metricDefinitionId: 'views', noteId: 'note-b', capturedAt: new Date('2026-08-01T00:20:00+08:00'), value: 1_000 },
@@ -80,7 +80,7 @@ describe('ReportService', () => {
     const store: ReportStore = {
       listAccountIds: async () => ['account-1'],
       listNoteIds: async () => ['note-1'],
-      listRequiredMetricDefinitionIds: async () => ['views', 'likes'],
+      listRequiredMetricDefinitions: async () => [{ key: 'views', id: 'views' }, { key: 'likes', id: 'likes' }],
       loadCumulativeMetrics: async () => [
         { metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date('2026-08-01T00:15:00+08:00'), value: 100 },
         { metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date('2026-08-01T23:45:00+08:00'), value: 120 },
@@ -102,7 +102,7 @@ describe('ReportService', () => {
     const store: ReportStore = {
       listAccountIds: async () => ['account-1'],
       listNoteIds: async () => ['note-1'],
-      listRequiredMetricDefinitionIds: async () => ['likes'],
+      listRequiredMetricDefinitions: async () => [{ key: 'likes', id: 'likes' }],
       loadCumulativeMetrics: async () => dates.flatMap((date, index) => [
         { metricDefinitionId: 'likes', noteId: 'note-1', capturedAt: new Date(`${date}T00:15:00+08:00`), value: index * 10 },
         { metricDefinitionId: 'likes', noteId: 'note-1', capturedAt: new Date(`${date}T23:45:00+08:00`), value: index * 10 + 1 },
@@ -121,7 +121,7 @@ describe('ReportService', () => {
     const dates = ['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30', '2026-07-31', '2026-08-01', '2026-08-02'];
     const store: ReportStore = {
       listAccountIds: async () => ['account-1'], listNoteIds: async () => ['note-1'],
-      listRequiredMetricDefinitionIds: async () => ['views'],
+      listRequiredMetricDefinitions: async () => [{ key: 'views', id: 'views' }],
       loadCumulativeMetrics: async () => dates.map((date, value) => ({
         metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date(`${date}T12:00:00+08:00`), value,
       })),
@@ -150,6 +150,33 @@ describe('ReportService', () => {
     expect(saved).toMatchObject({
       backfillId: 'backfill-42', rebuildJobId: 'report-rebuild-daily-backfill-42',
       previousReportId: 'report-v1', rebuildReason: 'metric_snapshot_backfilled',
+    });
+  });
+
+  it('awaits data and identifies all required metric definitions when none exist', async () => {
+    const store = storeWithSnapshots([]);
+    store.listRequiredMetricDefinitions = async () => [
+      { key: 'views' }, { key: 'likes' }, { key: 'comments' },
+    ];
+    const report = await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
+    expect(report.status).toBe('awaiting_data');
+    expect(report.missingFields).toEqual([
+      { noteId: 'note-1', metricKey: 'views', metricDefinitionId: null, date: '2026-08-01', reason: 'metric_definition_missing' },
+      { noteId: 'note-1', metricKey: 'likes', metricDefinitionId: null, date: '2026-08-01', reason: 'metric_definition_missing' },
+      { noteId: 'note-1', metricKey: 'comments', metricDefinitionId: null, date: '2026-08-01', reason: 'metric_definition_missing' },
+    ]);
+  });
+
+  it('awaits data when exactly one required metric definition is missing', async () => {
+    const store = storeWithSnapshots(['2026-08-01T00:15:00+08:00', '2026-08-01T23:45:00+08:00']);
+    store.listRequiredMetricDefinitions = async () => [
+      { key: 'views', id: 'views' }, { key: 'likes', id: 'likes' }, { key: 'comments' },
+    ];
+    const report = await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
+    expect(report.status).toBe('awaiting_data');
+    expect(report.missingFields).toContainEqual({
+      noteId: 'note-1', metricKey: 'comments', metricDefinitionId: null,
+      date: '2026-08-01', reason: 'metric_definition_missing',
     });
   });
 });

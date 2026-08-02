@@ -2,7 +2,8 @@ import { aggregateCumulative, getReportPeriod, type ReportType } from '@xhs/doma
 import type { DatabaseClient } from '@xhs/database';
 
 export type ReportStatus = 'complete' | 'awaiting_data';
-export interface MissingReportField { noteId: string; metricDefinitionId: string; date: string }
+export interface MissingReportField { noteId: string; metricDefinitionId: string | null; date: string; metricKey?: string; reason?: 'metric_definition_missing' }
+export interface RequiredMetricDefinition { key: 'views' | 'likes' | 'comments'; id?: string }
 
 export interface CumulativeSnapshot {
   metricDefinitionId: string;
@@ -37,7 +38,7 @@ export interface ReportGenerationContext {
 export interface ReportStore {
   listAccountIds(): Promise<string[]>;
   listNoteIds(accountId: string): Promise<string[]>;
-  listRequiredMetricDefinitionIds(): Promise<string[]>;
+  listRequiredMetricDefinitions(): Promise<RequiredMetricDefinition[]>;
   loadCumulativeMetrics(accountId: string, start: Date, end: Date): Promise<CumulativeSnapshot[]>;
   createVersion(input: CreateReportVersionInput): Promise<{ accountId: string; version: number; status: string }>;
 }
@@ -63,10 +64,10 @@ export class ReportService {
     const accountIds = context.accountId ? [context.accountId] : await this.store.listAccountIds();
     for (const accountId of accountIds) {
       const snapshots = await this.store.loadCumulativeMetrics(accountId, period.start, period.end);
-      const [noteIds, metricDefinitionIds] = await Promise.all([
-        this.store.listNoteIds(accountId), this.store.listRequiredMetricDefinitionIds(),
+      const [noteIds, metricDefinitions] = await Promise.all([
+        this.store.listNoteIds(accountId), this.store.listRequiredMetricDefinitions(),
       ]);
-      const missingFields = findMissingFields(noteIds, metricDefinitionIds, requiredDates, snapshots);
+      const missingFields = findMissingFields(noteIds, metricDefinitions, requiredDates, snapshots);
       const missingDates = [...new Set(missingFields.map((field) => field.date))].sort();
       const reportStatus: ReportStatus = missingDates.length ? 'awaiting_data' : 'complete';
       if (reportStatus === 'awaiting_data') status = reportStatus;
@@ -92,7 +93,7 @@ export class ReportService {
   }
 }
 
-function findMissingFields(noteIds: string[], metricDefinitionIds: string[], dates: string[], snapshots: CumulativeSnapshot[]) {
+function findMissingFields(noteIds: string[], metricDefinitions: RequiredMetricDefinition[], dates: string[], snapshots: CumulativeSnapshot[]) {
   const counts = new Map<string, number>();
   const seriesCounts = new Map<string, number>();
   for (const snapshot of snapshots) {
@@ -102,10 +103,16 @@ function findMissingFields(noteIds: string[], metricDefinitionIds: string[], dat
     seriesCounts.set(seriesKey, (seriesCounts.get(seriesKey) ?? 0) + 1);
   }
   const missing: MissingReportField[] = [];
-  for (const noteId of noteIds) for (const metricDefinitionId of metricDefinitionIds) for (const date of dates) {
+  for (const noteId of noteIds) for (const definition of metricDefinitions) for (const date of dates) {
+    if (!definition.id) {
+      missing.push({ noteId, metricKey: definition.key, metricDefinitionId: null, date, reason: 'metric_definition_missing' });
+      continue;
+    }
+    const metricDefinitionId = definition.id;
     if (!counts.has(`${noteId}\0${metricDefinitionId}\0${date}`)) missing.push({ noteId, metricDefinitionId, date });
   }
-  for (const noteId of noteIds) for (const metricDefinitionId of metricDefinitionIds) {
+  for (const noteId of noteIds) for (const { id: metricDefinitionId } of metricDefinitions) {
+    if (!metricDefinitionId) continue;
     const seriesKey = `${noteId}\0${metricDefinitionId}`;
     if ((seriesCounts.get(seriesKey) ?? 0) < 2 && !missing.some((field) => field.noteId === noteId && field.metricDefinitionId === metricDefinitionId)) {
       missing.push({ noteId, metricDefinitionId, date: dates[0]! });
@@ -125,10 +132,11 @@ export class PrismaReportStore implements ReportStore {
     return (await this.db.note.findMany({ where: { accountId }, select: { id: true }, orderBy: { id: 'asc' } })).map(({ id }) => id);
   }
 
-  async listRequiredMetricDefinitionIds() {
-    return (await this.db.metricDefinition.findMany({
-      where: { key: { in: ['views', 'likes', 'comments'] } }, select: { id: true }, orderBy: { key: 'asc' },
-    })).map(({ id }) => id);
+  async listRequiredMetricDefinitions(): Promise<RequiredMetricDefinition[]> {
+    const byKey = new Map((await this.db.metricDefinition.findMany({
+      where: { key: { in: ['views', 'likes', 'comments'] } }, select: { id: true, key: true },
+    })).map((definition) => [definition.key, definition.id]));
+    return (['views', 'likes', 'comments'] as const).map((key) => ({ key, id: byKey.get(key) }));
   }
 
   async loadCumulativeMetrics(accountId: string, start: Date, end: Date) {

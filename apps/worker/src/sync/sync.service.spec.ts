@@ -6,6 +6,8 @@ import { prisma } from '@xhs/database';
 
 import { SyncRepository } from './sync.repository';
 import { SyncService } from './sync.service';
+import { createReportQueue } from '../report/report.processor';
+import { PrismaAffectedReportStore, ReportRebuildDispatcher } from '../report/report.scheduler';
 
 class FaultInjectingConnector implements XhsConnector {
   private commentPages = 0;
@@ -91,6 +93,33 @@ describe('SyncService', () => {
 
     expect(observed.length).toBeGreaterThan(0);
     expect(await prisma.backfillEvent.count({ where: { id: { in: observed } } })).toBe(observed.length);
+  });
+
+  it('keeps metric sync successful when dispatch fails and recovers the persisted outbox through real Redis', async () => {
+    const queue = createReportQueue(); await queue.obliterate({ force: true });
+    const store = new PrismaAffectedReportStore(prisma);
+    const failingDispatcher = new ReportRebuildDispatcher(store, { add: async () => { throw new Error('redis unavailable'); } } as never);
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'mock', platformId: 'note-1', title: 'Note 1', publishedAt: new Date('2026-07-01') } });
+    const metrics = await new MockXhsConnector().getNoteMetrics({ noteId: 'note-1' });
+    const capturedDate = metrics[0]!.capturedAt.slice(0, 10);
+    await prisma.report.create({ data: {
+      accountId: account.id, reportType: 'daily', periodStart: new Date(`${capturedDate}T00:00:00+08:00`),
+      periodEnd: new Date(`${capturedDate}T23:59:59.999+08:00`), status: 'awaiting_data', missingDates: [capturedDate],
+    } });
+    const repository = new SyncRepository(prisma, (event) => failingDispatcher.handle(event));
+    await repository.startJob('job-outbox', account.id);
+    await expect(repository.saveMetrics('job-outbox', 'mock', note.platformId, metrics)).resolves.toBeUndefined();
+    const failed = await prisma.backfillEvent.findFirstOrThrow({ where: { accountId: account.id } });
+    expect(failed).toMatchObject({ dispatchStatus: 'failed', attempts: 1, lastError: 'redis unavailable', dispatchedAt: null });
+
+    await new ReportRebuildDispatcher(store, queue).dispatchPending();
+    const recovered = await prisma.backfillEvent.findUniqueOrThrow({ where: { id: failed.id } });
+    expect(recovered).toMatchObject({ dispatchStatus: 'dispatched', attempts: 2, lastError: null });
+    expect(recovered.dispatchedAt).not.toBeNull();
+    await new ReportRebuildDispatcher(store, queue).dispatchPending();
+    expect(await queue.count()).toBe(1);
+    await queue.close();
   });
 
   it('marks a job unverifiable and stops when the connector repeats a cursor', async () => {

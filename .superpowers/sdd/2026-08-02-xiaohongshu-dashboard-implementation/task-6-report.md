@@ -61,3 +61,28 @@
 - `report.repository.integration.spec.ts`：PostgreSQL 18 上两个独立 Prisma 连接并发生成同 scope，版本为 `[1,2]` 且仅有两行；不同 scope 各自为版本 1。
 - 实际环境：`postgres:18-alpine` 容器报告 PostgreSQL 18.4；`prisma migrate deploy` 已成功应用 `0002_report_versions` 和 `0003_report_rebuild_audit`。
 - 最终 fresh 验证：Domain 6/6；Worker 7 个文件 36/36（含 3 个 PostgreSQL 报告仓储集成用例与审计落库断言）；Database 5/5；Domain/Database typecheck、API/Web/Worker build、`prisma migrate status`、`git diff --check` 全部通过。
+
+## Fix round 2（2026-08-02）
+
+### 修复结果
+
+- 报告存储接口现在固定解析 `views/likes/comments` 三个必需 key；数据库无定义或少定义时仍返回完整要求，并以 `metricKey`、`metricDefinitionId: null`、`reason: metric_definition_missing` 持久表达缺失，报告只能是 `awaiting_data`。
+- `BackfillEvent` 成为事务 outbox，新增 `dispatchStatus/attempts/lastError/dispatchedAt`。指标快照和 pending 事件同事务提交；Redis 派发失败被结构化记录，不再让已成功的指标同步失败。
+- Worker 启动及每分钟扫描 pending/failed outbox。重试继续使用 backfill + report scope 稳定 job ID，首次失败后可经真实 Redis 恢复，重复扫描不重复入队。
+- 受影响报告按 account + type + period start/end 分 scope，只检查每个 scope 的全局最新版本；历史 v1 awaiting、最新 v2 complete 不再触发 v3。
+
+### RED 证据
+
+1. `pnpm --filter worker test -- report.service.spec.ts report.scheduler.spec.ts report.repository.integration.spec.ts`：12 个失败；必需定义新接口不存在、Redis 首次失败仍 reject、真实 PostgreSQL stale awaiting 返回 v1。
+2. outbox 集成测试初次验证发现没有受影响 scope 时会直接 dispatched；将测试改为先持久化真实 awaiting scope 后，确认 Queue.add 失败路径及持久状态。
+
+### GREEN / 最终验证
+
+- 测试文件：`report.service.spec.ts`（10）、`report.scheduler.spec.ts`（10）、`report.repository.integration.spec.ts`（4）、`sync.service.spec.ts`（9）。
+- `pnpm --filter worker test`：7 个文件，41/41 通过；含 PostgreSQL 18 与真实 Redis 首次失败、扫描恢复、重复扫描幂等。
+- `pnpm --filter @xhs/domain test`：2 个文件，6/6 通过。
+- `pnpm --filter @xhs/database test:integration`：2 个文件，5/5 通过。
+- `pnpm --filter @xhs/domain typecheck`、`pnpm --filter @xhs/database typecheck`、`pnpm --filter worker typecheck`：通过。
+- `pnpm build`：API、Worker、Web 全部通过。
+- PostgreSQL 18：迁移 `0004_backfill_outbox` 应用成功；`prisma migrate status` 报 6 migrations、schema up to date。
+- `git diff --check`：通过。

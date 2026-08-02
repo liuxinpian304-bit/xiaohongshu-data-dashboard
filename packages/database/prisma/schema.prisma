@@ -227,10 +227,15 @@ model BackfillEvent {
   noteId        String   @db.Uuid
   capturedDates String[]
   reason        String   @default("metric_snapshot_saved")
+  dispatchStatus String  @default("pending")
+  attempts      Int      @default(0)
+  lastError     String?
+  dispatchedAt  DateTime? @db.Timestamptz(3)
   createdAt     DateTime @default(now()) @db.Timestamptz(3)
   account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId, createdAt])
+  @@index([dispatchStatus, createdAt])
 }
 
 model Notification {

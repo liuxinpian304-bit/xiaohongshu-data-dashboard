@@ -54,6 +54,9 @@ export interface BackfillCommittedEvent {
 
 export interface AffectedReportStore {
   findAffectedReports(event: BackfillCommittedEvent): Promise<AffectedReport[]>;
+  listPendingEvents?(): Promise<BackfillCommittedEvent[]>;
+  markDispatched?(backfillId: string): Promise<void>;
+  markDispatchFailed?(backfillId: string, error: string): Promise<void>;
 }
 
 export class PrismaAffectedReportStore implements AffectedReportStore {
@@ -61,40 +64,60 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
 
   async findAffectedReports(event: BackfillCommittedEvent) {
     const reports = await this.db.report.findMany({
-      where: { accountId: event.accountId, status: 'awaiting_data', missingDates: { hasSome: event.capturedDates } },
-      select: { id: true, accountId: true, reportType: true, periodEnd: true },
+      where: { accountId: event.accountId },
+      select: { id: true, accountId: true, reportType: true, periodStart: true, periodEnd: true, status: true, missingDates: true },
       orderBy: { version: 'desc' },
     });
-    const scopes = new Map<string, AffectedReport>();
+    const seenScopes = new Set<string>();
+    const affected: AffectedReport[] = [];
     for (const report of reports) {
-      const key = `${report.reportType}\0${report.periodEnd.toISOString()}`;
-      if (!scopes.has(key)) scopes.set(key, { ...report, type: report.reportType as ReportType });
+      const key = `${report.reportType}\0${report.periodStart.toISOString()}\0${report.periodEnd.toISOString()}`;
+      if (seenScopes.has(key)) continue;
+      seenScopes.add(key);
+      if (report.status === 'awaiting_data' && report.missingDates.some((date) => event.capturedDates.includes(date))) {
+        affected.push({ ...report, type: report.reportType as ReportType });
+      }
     }
-    return [...scopes.values()];
+    return affected;
   }
+
+  async listPendingEvents() {
+    return (await this.db.backfillEvent.findMany({ where: { dispatchStatus: { in: ['pending', 'failed'] } }, orderBy: { createdAt: 'asc' } }))
+      .map((event) => ({ backfillId: event.id, accountId: event.accountId, noteId: event.noteId, capturedDates: event.capturedDates, reason: event.reason }));
+  }
+  async markDispatched(backfillId: string) { await this.db.backfillEvent.update({ where: { id: backfillId }, data: { dispatchStatus: 'dispatched', dispatchedAt: new Date(), attempts: { increment: 1 }, lastError: null } }); }
+  async markDispatchFailed(backfillId: string, error: string) { await this.db.backfillEvent.update({ where: { id: backfillId }, data: { dispatchStatus: 'failed', attempts: { increment: 1 }, lastError: error } }); }
 }
 
 export class ReportRebuildDispatcher {
   constructor(private readonly store: AffectedReportStore, private readonly queue: Queue<ReportJobData>) {}
 
   async handle(event: BackfillCommittedEvent) {
-    for (const report of await this.store.findAffectedReports(event)) {
-      const jobId = `report-rebuild-${report.type}-${event.backfillId}-${report.id}`;
-      await this.queue.add('rebuild-report', {
+    try {
+      for (const report of await this.store.findAffectedReports(event)) {
+        const jobId = `report-rebuild-${report.type}-${event.backfillId}-${report.id}`;
+        await this.queue.add('rebuild-report', {
         type: report.type,
         now: new Date(report.periodEnd.getTime() + 1).toISOString(),
         accountId: report.accountId,
         backfillId: event.backfillId,
         previousReportId: report.id,
         rebuildReason: event.reason,
-      }, reportJobOptions(jobId));
+        }, reportJobOptions(jobId));
+      }
+      await this.store.markDispatched?.(event.backfillId);
+    } catch (error) {
+      await this.store.markDispatchFailed?.(event.backfillId, error instanceof Error ? error.message : String(error));
     }
   }
+
+  async dispatchPending() { for (const event of await this.store.listPendingEvents?.() ?? []) await this.handle(event); }
 }
 
-export function startReportScheduler(queue: Queue<ReportJobData>) {
+export function startReportScheduler(queue: Queue<ReportJobData>, dispatcher?: ReportRebuildDispatcher) {
   void runScheduledReportTick(queue);
-  const timer = setInterval(() => void runScheduledReportTick(queue), 60_000);
+  void dispatcher?.dispatchPending();
+  const timer = setInterval(() => { void runScheduledReportTick(queue); void dispatcher?.dispatchPending(); }, 60_000);
   return { close: async () => clearInterval(timer) };
 }
 

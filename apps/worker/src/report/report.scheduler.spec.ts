@@ -107,4 +107,23 @@ describe('reportJobsForTick', () => {
       service: 'worker', component: 'report-scheduler', event: 'enqueue_failed', error: 'redis unavailable',
     }]);
   });
+
+  it('retries a pending outbox event and marks it dispatched without duplicate jobs', async () => {
+    const queue = createReportQueue(); resources.push(queue); await queue.obliterate({ force: true });
+    let first = true;
+    const store = {
+      findAffectedReports: async () => [{ id: 'daily-v1', accountId: 'account-1', type: 'daily' as const, periodEnd: new Date('2026-08-01T15:59:59.999Z') }],
+      listPendingEvents: async () => [{ backfillId: 'backfill-retry', accountId: 'account-1', noteId: 'note-1', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' }],
+      markDispatchFailed: async () => {}, markDispatched: async () => {},
+    };
+    const failingQueue = { add: async (...args: Parameters<typeof queue.add>) => {
+      if (first) { first = false; throw new Error('redis unavailable'); }
+      return queue.add(...args);
+    } };
+    const dispatcher = new ReportRebuildDispatcher(store, failingQueue as never);
+    await expect(dispatcher.handle((await store.listPendingEvents())[0]!)).resolves.toBeUndefined();
+    await dispatcher.dispatchPending();
+    await dispatcher.dispatchPending();
+    expect(await queue.count()).toBe(1);
+  });
 });

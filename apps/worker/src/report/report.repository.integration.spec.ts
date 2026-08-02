@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { createDatabaseClient } from '@xhs/database';
 
 import { PrismaReportStore } from './report.service';
+import { PrismaAffectedReportStore } from './report.scheduler';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:55432/xhs_dashboard';
 const firstDb = createDatabaseClient(connectionString);
@@ -75,6 +76,17 @@ describe('PrismaReportStore version allocation', () => {
       backfillId: 'backfill-audit', rebuildJobId: 'report-rebuild-daily-backfill-audit',
       previousReportId: previous.id, rebuildReason: 'metric_snapshot_saved',
     });
+    await firstDb.account.delete({ where: { id: account.id } });
+  });
+
+  it('ignores a stale awaiting version when the latest report in its scope is complete', async () => {
+    const account = await firstDb.account.create({ data: { connectorType: 'integration-report', platformId: crypto.randomUUID() } });
+    const store = new PrismaReportStore(firstDb);
+    const base = { accountId: account.id, type: 'daily' as const, periodStart: new Date('2026-08-01T00:00:00+08:00'), periodEnd: new Date('2026-08-01T23:59:59.999+08:00'), metrics: [] };
+    await store.createVersion({ ...base, status: 'awaiting_data', missingDates: ['2026-08-01'], missingFields: [] });
+    await store.createVersion({ ...base, status: 'complete', missingDates: [], missingFields: [] });
+    const affected = await new PrismaAffectedReportStore(firstDb).findAffectedReports({ backfillId: 'bf', accountId: account.id, noteId: crypto.randomUUID(), capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' });
+    expect(affected).toEqual([]);
     await firstDb.account.delete({ where: { id: account.id } });
   });
 });

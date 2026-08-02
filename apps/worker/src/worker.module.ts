@@ -14,7 +14,7 @@ export function startWorker() {
   const service = new SyncService(new MockXhsConnector(), new SyncRepository(prisma, (event) => rebuildDispatcher.handle(event)));
   const syncWorker = createSyncWorker(service);
   const reportWorker = createReportWorker(new ReportService(new PrismaReportStore(prisma)));
-  const scheduler = startReportScheduler(reportQueue);
+  const scheduler = startReportScheduler(reportQueue, rebuildDispatcher);
   const closeSyncWorker = syncWorker.close.bind(syncWorker);
   syncWorker.close = async (force?: boolean) => {
     await scheduler.close();

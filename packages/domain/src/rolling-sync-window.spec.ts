@@ -31,6 +31,25 @@ describe('getRollingSyncDates', () => {
   it('never includes the current Shanghai business date', () => {
     expect(getRollingSyncDates(new Date('2026-08-04T10:00:00+08:00')).dates).not.toContain('2026-08-04');
   });
+
+  it('is invariant across host time zones at Shanghai month and year boundaries', () => {
+    const originalTimeZone = process.env.TZ;
+    try {
+      const results = ['UTC', 'America/Los_Angeles', 'Asia/Shanghai'].map((timeZone) => {
+        process.env.TZ = timeZone;
+        return [
+          getRollingSyncDates(new Date('2026-08-31T16:00:00.000Z')),
+          getRollingSyncDates(new Date('2026-12-31T16:00:00.000Z')),
+        ];
+      });
+      expect(results[1]).toEqual(results[0]);
+      expect(results[2]).toEqual(results[0]);
+      expect(results[0]?.[0]).toMatchObject({ mode: 'previous_month_final', dates: expect.arrayContaining(['2026-08-01', '2026-08-31']) });
+      expect(results[0]?.[1]).toMatchObject({ mode: 'previous_month_final', dates: expect.arrayContaining(['2026-12-01', '2026-12-31']) });
+    } finally {
+      process.env.TZ = originalTimeZone;
+    }
+  });
 });
 
 describe('rollingSyncJobId', () => {

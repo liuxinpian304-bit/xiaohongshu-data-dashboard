@@ -26,3 +26,11 @@
 ## 包名说明
 
 领域包实际名为 `@xhs/domain`，与计划命令一致；worker 包在 `apps/worker/package.json` 中的实际名为 `worker`，因此 worker 验证使用 `pnpm --filter worker ...`。
+
+## Review Round 1 追加
+
+- 入队故障隔离从账号级细化到单个账号/日期任务；错误中包含 `accountId`、`businessDate` 和 `jobId`，中间日期失败不再中断后续日期。
+- Prisma 分页改为 `take: limit + 1` lookahead，Store 自身返回 `hasMore` 和可验证的 `nextCursor`；调度器拒绝缺失、重复或与页末账号不一致的游标。
+- 账号按页读取与处理，不再一次性加载全部账号；每页入队使用 16 路有界并发，待当前页全部 settle 后才读取下一页。
+- 上海业务日先用 `formatInTimeZone` 提取，自然月运算改用纯 Gregorian/UTC 日历；任务 UTC 边界用 `fromZonedTime` 生成。新增 `TZ=UTC`、`America/Los_Angeles`、`Asia/Shanghai` 下的月界和跨年一致性测试。
+- Round 1 最终验证：`@xhs/domain` 4 个文件、30 项测试通过；`worker` 13 个文件、93 项测试通过；两个包的 typecheck 和 worker build 均通过。

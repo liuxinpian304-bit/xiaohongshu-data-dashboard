@@ -1,5 +1,4 @@
-import { addDays, endOfMonth, format, startOfDay, startOfMonth, subDays, subMonths } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 
 const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
 
@@ -11,10 +10,11 @@ export interface RollingSyncWindow {
 }
 
 export function getRollingSyncDates(now: Date): RollingSyncWindow {
-  const businessToday = startOfDay(toZonedTime(now, BUSINESS_TIME_ZONE));
-  const isMonthStart = businessToday.getDate() === 1;
-  const firstDate = isMonthStart ? startOfMonth(subMonths(businessToday, 1)) : startOfMonth(businessToday);
-  const lastDate = isMonthStart ? endOfMonth(firstDate) : subDays(businessToday, 1);
+  const [year, month, day] = formatInTimeZone(now, BUSINESS_TIME_ZONE, 'yyyy-MM-dd').split('-').map(Number) as [number, number, number];
+  const isMonthStart = day === 1;
+  const currentMonthStart = Date.UTC(year, month - 1, 1);
+  const firstDate = isMonthStart ? Date.UTC(year, month - 2, 1) : currentMonthStart;
+  const lastDate = isMonthStart ? currentMonthStart - DAY_MS : Date.UTC(year, month - 1, day) - DAY_MS;
 
   return {
     mode: isMonthStart ? 'previous_month_final' : 'month_to_date',
@@ -26,8 +26,10 @@ export function rollingSyncJobId(accountId: string, date: string, mode: string):
   return `rolling-sync-${mode}-${date}-${accountId}`;
 }
 
-function datesBetween(start: Date, end: Date): string[] {
+function datesBetween(start: number, end: number): string[] {
   const dates: string[] = [];
-  for (let date = start; date <= end; date = addDays(date, 1)) dates.push(format(date, 'yyyy-MM-dd'));
+  for (let date = start; date <= end; date += DAY_MS) dates.push(new Date(date).toISOString().slice(0, 10));
   return dates;
 }
+
+const DAY_MS = 24 * 60 * 60_000;

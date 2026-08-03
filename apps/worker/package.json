@@ -20,6 +20,7 @@
     "@xhs/database": "workspace:*",
     "@xhs/domain": "workspace:*",
     "bullmq": "^6.0.5",
+    "date-fns-tz": "^3.2.0",
     "ioredis": "^6.0.0",
     "web-push": "^3.6.7"
   }

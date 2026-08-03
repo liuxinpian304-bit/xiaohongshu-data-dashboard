@@ -21,7 +21,10 @@ export class SyncRepository {
     const account = await this.db.account.findFirst({ where: {
       id: accountId, connectorType: 'official', revocationState: 'none',
       credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } },
-      capabilities: { some: { enabled: true } },
+      AND: [
+        { capabilities: { some: { capability: 'notes', enabled: true } } },
+        { capabilities: { some: { capability: 'noteMetrics', enabled: true } } },
+      ],
     }, select: { id: true } });
     if (!account) throw new Error('account is not an active authorized official account');
   }
@@ -77,7 +80,7 @@ export class SyncRepository {
     if (context) validateRollingMetrics(metrics, context);
     const event = await this.db.$transaction(async (tx) => {
       const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
-      const capturedDates = backfillBusinessDates(metrics);
+      const capturedDates = context ? [context.businessDate] : backfillBusinessDates(metrics);
       const observationDigest = createHash('sha256').update(JSON.stringify(metrics.map(({ capturedAt, views, likes, comments, source, metricMetadata }) => ({ capturedAt, views, likes, comments, source, metricMetadata })))).digest('hex');
       const backfillId = createHash('sha256').update(`${note.id}\0${capturedDates.join(',')}\0${observationDigest}`).digest('hex').slice(0, 32);
       const source = metrics[0]?.source ?? (connectorType === 'mock' ? 'mock' : 'official');
@@ -90,7 +93,7 @@ export class SyncRepository {
       let changed = false;
       for (const [key, displayName, aggregation] of definitions) {
         const aggregationVersion = metrics[0]?.metricMetadata?.[key]?.aggregationVersion ?? `${source}-v1`;
-        const effectiveFrom = new Date(Math.min(...metrics.map(({ capturedAt }) => new Date(capturedAt).getTime())));
+        const effectiveFrom = new Date(Math.min(...metrics.map(({ capturedAt }) => context ? new Date(context.windowEndExclusive).getTime() - 1 : new Date(capturedAt).getTime())));
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${key}|${source}`}))`;
         let definition = await tx.metricDefinition.findUnique({ where: { key_source_version: { key, source, version: aggregationVersion } } });
         if (!definition) {
@@ -104,7 +107,8 @@ export class SyncRepository {
           if (definition.key !== key || definition.source !== source) throw new Error(`metric identity does not match definition: ${key}/${aggregationVersion}`);
           if ((metadata?.aggregation ?? aggregation) !== definition.aggregation) throw new Error(`metric aggregation does not match definition: ${key}/${aggregationVersion}`);
           if ((metadata?.aggregationVersion ?? aggregationVersion) !== definition.version) throw new Error(`metric version does not match definition: ${key}/${aggregationVersion}`);
-          const identity = { noteId: note.id, metricDefinitionId: definition.id, capturedAt: new Date(metric.capturedAt) };
+          const observedAt = new Date(metric.capturedAt);
+          const identity = { noteId: note.id, metricDefinitionId: definition.id, capturedAt: context ? new Date(new Date(context.windowEndExclusive).getTime() - 1) : observedAt };
           if (identity.capturedAt < definition.effectiveFrom || (definition.effectiveTo && identity.capturedAt >= definition.effectiveTo)) throw new Error(`metric observation is outside definition effective interval: ${key}/${aggregationVersion}`);
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${identity.noteId}|${identity.metricDefinitionId}|${identity.capturedAt.toISOString()}`}))`;
           const existing = await tx.metricSnapshot.findFirst({ where: { ...identity, supersededAt: null } });
@@ -121,9 +125,9 @@ export class SyncRepository {
           if (existing) {
             const correctedAt = new Date();
             await tx.$executeRaw`SELECT supersede_metric_snapshot(${existing.id}::uuid, ${correctedAt}::timestamptz)`;
-            await tx.metricSnapshot.create({ data: { ...identity, ...observation, revision: existing.revision + 1, supersedesId: existing.id, correctedAt, correctionReason: 'changed_official_observation', sourceRunId: jobId } });
+            await tx.metricSnapshot.create({ data: { ...identity, observedAt, ...observation, revision: existing.revision + 1, supersedesId: existing.id, correctedAt, correctionReason: 'changed_official_observation', sourceRunId: jobId } });
           } else {
-            await tx.metricSnapshot.create({ data: { ...identity, ...observation, sourceRunId: jobId } });
+            await tx.metricSnapshot.create({ data: { ...identity, observedAt, ...observation, sourceRunId: jobId } });
           }
         }
       }
@@ -258,7 +262,7 @@ function validateRollingMetrics(metrics: NoteMetric[], context: MetricRollingCon
   const start = new Date(context.windowStart); const end = new Date(context.windowEndExclusive);
   for (const metric of metrics) {
     const capturedAt = new Date(metric.capturedAt);
-    if (metric.source !== 'official' || !Number.isFinite(capturedAt.getTime()) || capturedAt < start || capturedAt >= end) throw new Error('official metric capturedAt is outside rolling sync window');
+    if (metric.source !== 'official' || !Number.isFinite(capturedAt.getTime())) throw new Error('official metric observedAt is invalid');
     for (const key of ['views', 'likes', 'comments'] as const) {
       const metadata = metric.metricMetadata?.[key];
       if (metadata?.aggregation && metadata.aggregation !== 'cumulative_delta') {

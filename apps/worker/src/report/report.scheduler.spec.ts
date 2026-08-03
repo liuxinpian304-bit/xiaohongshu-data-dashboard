@@ -117,6 +117,24 @@ describe('reportJobsForTick', () => {
     expect(await store.findAffectedReports({ backfillId: 'mock-event', accountId: 'account-1', noteId: 'note', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved', source: 'mock' })).toEqual([]);
   });
 
+  it.each(['self_import', 'legacy', undefined])('fails closed for %s backfill events even when a report awaits that day', async (source) => {
+    const store = new PrismaAffectedReportStore({ report: { findMany: async () => [{
+      id: 'awaiting-daily', accountId: 'account-1', reportType: 'daily', periodStart: new Date('2026-07-31T16:00:00Z'),
+      periodEnd: new Date('2026-08-01T15:59:59.999Z'), version: 1, status: 'awaiting_data', missingDates: ['2026-08-01'],
+    }] } } as never);
+    expect(await store.findAffectedReports({ backfillId: 'closed', accountId: 'account-1', noteId: 'note', capturedDates: ['2026-08-01'], reason: 'imported', source })).toEqual([]);
+  });
+
+  it('maps a September final-check observation back to the affected August monthly scope', async () => {
+    const store = new PrismaAffectedReportStore({ report: { findMany: async () => [{
+      id: 'august-monthly', accountId: 'account-1', reportType: 'monthly', periodStart: new Date('2026-07-31T16:00:00Z'),
+      periodEnd: new Date('2026-08-31T15:59:59.999Z'), version: 1, status: 'complete', missingDates: [],
+    }] } } as never);
+    expect(await store.findAffectedReports({ backfillId: 'final-check', accountId: 'account-1', noteId: 'note', capturedDates: ['2026-08-31'], businessDate: '2026-08-31', mode: 'previous_month_final', reason: 'official_observation_committed', source: 'official' })).toEqual([
+      expect.objectContaining({ id: 'august-monthly', type: 'monthly' }),
+    ]);
+  });
+
   it('turns queue failures into a structured scheduler error instead of an unhandled rejection', async () => {
     const errors: unknown[] = [];
     const queue = { add: async () => { throw new Error('redis unavailable'); } };

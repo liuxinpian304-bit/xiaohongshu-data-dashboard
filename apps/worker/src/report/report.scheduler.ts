@@ -84,6 +84,7 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
   constructor(private readonly db: DatabaseClient) {}
 
   async findAffectedReports(event: BackfillCommittedEvent) {
+    if (event.source !== 'official' && event.source !== 'mock') return [];
     const reports = await this.db.report.findMany({
       where: { accountId: event.accountId },
       select: { id: true, accountId: true, reportType: true, periodStart: true, periodEnd: true, version: true, status: true, missingDates: true },
@@ -96,8 +97,10 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
       if (seenScopes.has(key)) continue;
       seenScopes.add(key);
       const overlaps = event.capturedDates.some((date) => reportContainsBusinessDate(report.periodStart, report.periodEnd, date));
-      const sourceMayRebuildComplete = event.source === 'official';
-      if (overlaps && (sourceMayRebuildComplete || (report.status === 'awaiting_data' && report.missingDates.some((date) => event.capturedDates.includes(date))))) {
+      const accepted = event.source === 'official'
+        ? overlaps
+        : overlaps && report.status === 'awaiting_data' && report.missingDates.some((date) => event.capturedDates.includes(date));
+      if (accepted) {
         affected.push({ ...report, type: report.reportType as ReportType });
       }
     }

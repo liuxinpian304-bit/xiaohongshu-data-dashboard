@@ -122,6 +122,7 @@ model MetricSnapshot {
   availability       MetricAvailability
   value              Decimal?           @db.Decimal(20, 4)
   capturedAt         DateTime           @db.Timestamptz(3)
+  observedAt         DateTime           @default(now()) @db.Timestamptz(3)
   source             String
   aggregation        MetricAggregation @default(cumulative_delta)
   aggregationVersion String            @default("legacy-v1")

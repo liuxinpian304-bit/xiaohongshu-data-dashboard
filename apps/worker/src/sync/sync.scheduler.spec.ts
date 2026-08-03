@@ -114,8 +114,12 @@ describe('PrismaRollingSyncAccountStore', () => {
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         connectorType: 'official',
+        revocationState: 'none',
         credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date('2026-08-03T01:00:00Z') } }] } },
-        capabilities: { some: { enabled: true } },
+        AND: [
+          { capabilities: { some: { capability: 'notes', enabled: true } } },
+          { capabilities: { some: { capability: 'noteMetrics', enabled: true } } },
+        ],
       }),
     }));
   });

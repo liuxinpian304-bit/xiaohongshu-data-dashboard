@@ -39,3 +39,13 @@
 - `ReportResult.reports[]` 每项携带自身 `missingDates`/`missingFields`，通知生产仅使用该项数据，不会在多账号间泄漏汇总缺失。
 - Round 1 RED 分别捕获 mock 误重建 complete、坏日期/错窗仍调用 service、伪 official 账号通过、connector 错位仍提交、A/B 通知共用汇总缺失。
 - Round 1 全量测试：domain 30、worker 108、API 64、database 7、connector 11、web 18，全部通过；Prisma 共 21 个迁移。
+
+## Review Round 2 修复
+
+- 受影响报告分支改为显式来源白名单：`official` 可命中 complete/awaiting，`mock` 仅保留旧 awaiting 补数，`self_import`/`legacy`/缺失来源一律空结果。
+- `MetricSnapshot` 新增 `observedAt` 保留 connector 的真实采集时间；rolling official 的 `capturedAt` 作为业务归属时间固定为上海业务日窗口结束前 1ms。旧数据安全回填 `observedAt=capturedAt`，无 rolling context 的未来导入仍按真实 sample `capturedAt` 归属。
+- rolling outbox 日期只来自 context `businessDate`；次日或月初采集历史日允许 `observedAt` 晚于业务窗口。同 note/definition/businessDate 相同值即使不同实际采集时间也幂等，值变化则追加 revision。
+- scheduler 与执行前账号门控均明确要求 `notes` 和 `noteMetrics` 两项 capability 同时 enabled，comments-only 或仅其一均拒绝。
+- Round 2 RED 覆盖非白名单来源误重建、历史日晚采集被拒绝、重抓归属/修订错误、单 capability 账号通过和 scheduler 过宽。
+- Round 2 全量测试：domain 30、worker 116、API 64、database 7、connector 11、web 18，全部通过；全 workspace typecheck/build 通过。
+- 升级库和临时 fresh database 均顺序应用全部 22 个 Prisma 迁移并报告 schema up to date；fresh database 验证后已删除。

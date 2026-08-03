@@ -40,9 +40,13 @@ export class PrismaRollingSyncAccountStore implements RollingSyncAccountStore {
     const rows = await this.db.account.findMany({
       where: {
         connectorType: 'official',
+        revocationState: 'none',
         ...(cursor ? { id: { gt: cursor } } : {}),
         credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } },
-        capabilities: { some: { enabled: true } },
+        AND: [
+          { capabilities: { some: { capability: 'notes', enabled: true } } },
+          { capabilities: { some: { capability: 'noteMetrics', enabled: true } } },
+        ],
       },
       orderBy: { id: 'asc' },
       take: limit + 1,

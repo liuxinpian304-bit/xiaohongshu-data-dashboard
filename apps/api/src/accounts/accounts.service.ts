@@ -53,19 +53,20 @@ export class AccountsService {
     });
   }
   async remove(id: string, retainData: boolean) {
-    const account = await prisma.account.findUnique({ where: { id }, include: { capabilities: true } });
-    if (!account) throw new NotFoundException('managed account not found');
-    const connector = this.connectors.resolve(account.connectorType); const capabilities = connector ? await connector.getCapabilities() : undefined;
-    const officialRevocationSupported = capabilities?.revokeAuthorization === true && typeof connector?.revokeAuthorization === 'function';
-    if (officialRevocationSupported) await connector!.revokeAuthorization!({ accountId: id });
-    const hasHistoricalData = Boolean(await prisma.note.count({ where: { accountId: id } }) || await prisma.report.count({ where: { accountId: id } }));
-    const retainedBusinessData = retainData || hasHistoricalData;
-    await prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Account" WHERE id = ${id}::uuid FOR UPDATE`;
+      const account = await tx.account.findUnique({ where: { id }, include: { capabilities: true } });
+      if (!account) throw new NotFoundException('managed account not found');
+      const connector = this.connectors.resolve(account.connectorType); const capabilities = connector ? await connector.getCapabilities() : undefined;
+      const officialRevocationSupported = capabilities?.revokeAuthorization === true && typeof connector?.revokeAuthorization === 'function';
+      if (officialRevocationSupported) await connector!.revokeAuthorization!({ accountId: id });
+      const hasHistoricalData = Boolean(await tx.note.count({ where: { accountId: id } }) || await tx.report.count({ where: { accountId: id } }));
+      const retainedBusinessData = retainData || hasHistoricalData;
       await tx.credential.deleteMany({ where: { accountId: id } });
       if (!retainedBusinessData) await tx.account.delete({ where: { id } });
       else await tx.connectorCapability.updateMany({ where: { accountId: id }, data: { enabled: false } });
       await tx.auditLog.create({ data: { actor: 'admin', action: 'account.deleted', entityType: 'Account', entityId: id, details: { requestedRetainData: retainData, retainedBusinessData, officialRevocationSupported, revocation: officialRevocationSupported ? 'revoked' : 'unsupported' } } });
+      return { id, retainedBusinessData, credentialsDeleted: true, officialRevocationSupported };
     });
-    return { id, retainedBusinessData, credentialsDeleted: true, officialRevocationSupported };
   }
 }

@@ -342,6 +342,10 @@ describe('SyncService', () => {
     await expect(repository.saveMetrics('interval-job', 'official', 'interval-note', [{ noteId: 'interval-note', capturedAt: '2026-08-01T13:00:00Z', views: 1, likes: 1, comments: 1, source: 'official', metricMetadata: { views: metadata, likes: metadata, comments: metadata } }])).rejects.toThrow('effective interval');
     const invalidWindow = { ...metadata, windowStart: '2024-12-31T00:00:00Z', windowEnd: '2025-01-02T00:00:00Z' };
     await expect(repository.saveMetrics('interval-job', 'official', 'interval-note', [{ noteId: 'interval-note', capturedAt: '2025-06-01T13:00:00Z', views: 1, likes: 1, comments: 1, source: 'official', metricMetadata: { views: invalidWindow, likes: invalidWindow, comments: invalidWindow } }])).rejects.toThrow('window is outside');
+    const mismatch = { ...metadata, aggregation: 'period_end' as const };
+    await expect(repository.saveMetrics('interval-job', 'official', 'interval-note', [{ noteId: 'interval-note', capturedAt: '2025-06-01T13:00:00Z', views: 1, likes: 1, comments: 1, source: 'official', metricMetadata: { views: mismatch, likes: mismatch, comments: mismatch } }])).rejects.toThrow('aggregation does not match');
+    const halfWindow = { ...metadata, windowStart: '2025-05-01T00:00:00Z' };
+    await expect(repository.saveMetrics('interval-job', 'official', 'interval-note', [{ noteId: 'interval-note', capturedAt: '2025-06-01T13:00:00Z', views: 1, likes: 1, comments: 1, source: 'official', metricMetadata: { views: halfWindow, likes: halfWindow, comments: halfWindow } }])).rejects.toThrow('both start and end');
   });
 
   it('clears unverifiable verification state after a successful retry', async () => {

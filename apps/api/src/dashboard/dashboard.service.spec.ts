@@ -13,6 +13,15 @@ describe('DashboardService', () => {
     ]);
     expect(evidence.map(({ metricDefinitionId }) => metricDefinitionId)).toEqual(['v2']);
   });
+  it('does not invent a cross-version cumulative increase across a transition gap', async () => {
+    const store = storeWith([]);
+    store.read = async () => ({ definitions: [
+      { id: 'v1', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta', effectiveFrom: new Date('2025-12-01'), effectiveTo: new Date('2025-12-30T00:00:00Z') },
+      { id: 'v2', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta', effectiveFrom: new Date('2025-12-30T00:00:00Z'), effectiveTo: null },
+    ], snapshots: [snap({ metricDefinitionId: 'v1', value: '10' }), snap({ metricDefinitionId: 'v1', value: '15', capturedAt: new Date('2025-12-29T23:59:59.999Z') }), snap({ metricDefinitionId: 'v2', value: '100', capturedAt: new Date('2025-12-30T01:00:00Z') })], lastSyncedAt: new Date() } as any);
+    const result = await new DashboardService(store).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'));
+    expect(result.cards.find(({ key }) => key === 'likes')?.availability).toBe('not_synced');
+  });
   it('only considers completed collection jobs for lastSyncedAt, never comment exports', () => {
     const now = new Date();
     expect(completedCollectionJobWhere('official', 'account-1', now)).toEqual(expect.objectContaining({ status: 'succeeded', currentStage: 'complete', accountId: 'account-1' }));

@@ -59,7 +59,7 @@ describe('ReportService', () => {
     ] }];
     store.loadCumulativeMetrics = async () => [
       { metricDefinitionId: 'views-v1', noteId: 'note-1', capturedAt: new Date('2026-07-31T23:00:00+08:00'), value: 10, aggregation: 'cumulative_delta', aggregationVersion: 'v1', id: 's1', revision: 1 },
-      { metricDefinitionId: 'views-v1', noteId: 'note-1', capturedAt: new Date('2026-08-01T11:59:00+08:00'), value: 15, aggregation: 'cumulative_delta', aggregationVersion: 'v1', id: 's2', revision: 1 },
+      { metricDefinitionId: 'views-v1', noteId: 'note-1', capturedAt: new Date('2026-08-01T11:59:59.999+08:00'), value: 15, aggregation: 'cumulative_delta', aggregationVersion: 'v1', id: 's2', revision: 1 },
       { metricDefinitionId: 'views-v2', noteId: 'note-1', capturedAt: new Date('2026-08-01T12:00:00+08:00'), value: 15, aggregation: 'cumulative_delta', aggregationVersion: 'v2', id: 's3', revision: 1 },
       { metricDefinitionId: 'views-v2', noteId: 'note-1', capturedAt: new Date('2026-08-01T23:59:00+08:00'), value: 20, aggregation: 'cumulative_delta', aggregationVersion: 'v2', id: 's4', revision: 1 },
     ];

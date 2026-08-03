@@ -21,7 +21,7 @@ type DashboardSnapshot = {
 export interface DashboardStore {
   isAuthorizedOfficialAccount(accountId: string, now: Date): Promise<boolean>;
   read(periodStart: Date, periodEnd: Date, source: string, accountId: string | undefined, now: Date): Promise<{
-    definitions: Array<{ id: string; key: string; displayName: string; aggregation: MetricAggregation }>;
+    definitions: Array<{ id: string; key: string; displayName: string; aggregation: MetricAggregation; effectiveFrom?: Date; effectiveTo?: Date | null }>;
     snapshots: DashboardSnapshot[];
     lastSyncedAt: Date | null;
   }>;
@@ -78,20 +78,23 @@ function availabilityOf(items: DashboardSnapshot[]): DataAvailability {
   return values.includes('awaiting_authorization') ? 'awaiting_authorization' : values.includes('not_provided') ? 'not_provided' : 'not_synced';
 }
 
-function seriesDeltas(snapshots: DashboardSnapshot[], start: Date, cutoff: Date): DeltaSnapshot[] {
+function seriesDeltas(snapshots: DashboardSnapshot[], start: Date, cutoff: Date, definitions: Array<{ id: string; effectiveFrom?: Date; effectiveTo?: Date | null }>): DeltaSnapshot[] {
   const groups = new Map<string, DashboardSnapshot[]>();
-  const compatibleKeys = new Set([...new Set(snapshots.map(({ metricKey }) => metricKey))].filter((key) => new Set(snapshots.filter((item) => item.metricKey === key).map(({ aggregation }) => aggregation)).size === 1));
   for (const item of snapshots.filter(({ capturedAt }) => capturedAt <= cutoff)) {
-    const key = compatibleKeys.has(item.metricKey) ? `${item.noteId}:${item.metricKey}` : `${item.noteId}:${item.metricDefinitionId}`;
+    const key = `${item.noteId}:${item.metricDefinitionId}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
   return [...groups.values()].map((items) => {
     const aggregation = items[0]!.aggregation;
-    const baseline = items.filter(({ capturedAt }) => capturedAt < start).at(-1);
-    const end = items.filter(({ capturedAt }) => capturedAt >= start && capturedAt <= cutoff).at(-1);
+    const definition = definitions.find(({ id }) => id === items[0]!.metricDefinitionId);
+    const segmentStart = definition?.effectiveFrom && definition.effectiveFrom > start ? definition.effectiveFrom : start;
+    const segmentEnd = definition?.effectiveTo && definition.effectiveTo <= cutoff ? new Date(definition.effectiveTo.getTime() - 1) : cutoff;
+    const baseline = items.filter(({ capturedAt }) => capturedAt <= segmentStart).at(-1);
+    const end = items.filter(({ capturedAt }) => capturedAt >= segmentStart && capturedAt <= segmentEnd).at(-1);
     if (!end || (aggregation === 'cumulative_delta' && !baseline)) return { ...(end ?? baseline ?? items[0]!), delta: null };
-    const inPeriod = items.filter(({ capturedAt }) => capturedAt >= start && capturedAt <= cutoff);
+    const inPeriod = items.filter(({ capturedAt }) => capturedAt > segmentStart && capturedAt <= segmentEnd);
     const sequence = aggregation === 'cumulative_delta' ? [baseline!, ...inPeriod] : inPeriod;
+    if (aggregation === 'cumulative_delta' && ((definition?.effectiveFrom && definition.effectiveFrom > start && baseline?.capturedAt.getTime() !== segmentStart.getTime()) || (definition?.effectiveTo && definition.effectiveTo <= cutoff && end?.capturedAt.getTime() !== segmentEnd.getTime()))) return { ...(end ?? baseline ?? items[0]!), delta: null };
     if (sequence.some((item) => !usable(item))) return { ...end, delta: null };
     return { ...end, delta: aggregateMetricSeries(aggregation, sequence.map((item) => ({ value: Number(item.value), authoritativePeriod: item.authoritativePeriod, windowStart: item.windowStart ?? undefined, windowEnd: item.windowEnd ?? undefined })), { start, endExclusive: new Date(cutoff.getTime() + 1) }) };
   });
@@ -104,11 +107,11 @@ function aggregate(key: string, aggregation: MetricAggregation, deltas: DeltaSna
   return { key, aggregation, value: null, availability: availabilityOf(deltas) };
 }
 
-function buildTrend(snapshots: DashboardSnapshot[], start: Date, end: Date, definitions: Array<{ key: string; aggregation: MetricAggregation }>) {
+function buildTrend(snapshots: DashboardSnapshot[], start: Date, end: Date, definitions: Array<{ id: string; key: string; aggregation: MetricAggregation; effectiveFrom?: Date; effectiveTo?: Date | null }>) {
   const dates = [...new Set(snapshots.filter(({ capturedAt }) => capturedAt >= start && capturedAt <= end).map(({ capturedAt }) => shanghaiDate(capturedAt)))].sort();
   return dates.map((date) => {
     const cutoff = new Date(`${date}T23:59:59.999+08:00`);
-    const deltas = seriesDeltas(snapshots, start, cutoff);
+    const deltas = seriesDeltas(snapshots, start, cutoff, definitions);
     return { date, metrics: definitions.map(({ key, aggregation }) => aggregate(key, aggregation, deltas.filter((item) => item.metricKey === key))) };
   });
 }
@@ -138,7 +141,7 @@ export class DashboardService {
     const definitionMap = new Map(data.definitions.map((item) => [item.key, item]));
     for (const item of data.snapshots) definitionMap.set(item.metricKey, { id: item.metricDefinitionId, key: item.metricKey, displayName: definitionMap.get(item.metricKey)?.displayName ?? item.metricKey, aggregation: item.aggregation });
     const definitions = [...definitionMap.values()].sort((a, b) => a.key.localeCompare(b.key));
-    const deltas = seriesDeltas(data.snapshots, reportPeriod.start, reportPeriod.end);
+    const deltas = seriesDeltas(data.snapshots, reportPeriod.start, reportPeriod.end, data.definitions);
     return {
       period, periodStart: reportPeriod.start.toISOString(), periodEnd: reportPeriod.end.toISOString(), source,
       lastSyncedAt: data.lastSyncedAt?.toISOString() ?? null,

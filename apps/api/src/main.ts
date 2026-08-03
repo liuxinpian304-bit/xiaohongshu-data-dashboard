@@ -5,6 +5,7 @@ import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { DocumentBuilder, getSchemaPath, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import { pathToFileURL } from 'node:url';
+import { verifyRuntimeDatabaseRole } from '@xhs/database';
 
 import { AppModule } from './app.module';
 
@@ -68,6 +69,7 @@ export function configureApp(app: INestApplication) {
 }
 
 async function bootstrap() {
+  await verifyRuntimeDatabaseRole();
   const app = await NestFactory.create(AppModule);
   configureApp(app);
   await app.listen(process.env.API_PORT ?? 3001);

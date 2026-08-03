@@ -28,10 +28,11 @@ describe('account credential lifecycle', () => {
     expect(result.officialRevocationSupported).toBe(false); expect(connector.revokeAuthorization).not.toHaveBeenCalled();
   });
   it('preserves local credentials when the resolved connector revocation fails', async () => {
-    const account = await prisma.account.create({ data: { connectorType: 'official-y', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } } } });
+    const account = await prisma.account.create({ data: { connectorType: 'official-y', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } }, capabilities: { create: { capability: 'noteMetrics', enabled: true } } } });
     const connector = { getCapabilities: vi.fn(async () => ({ revokeAuthorization: true })), revokeAuthorization: vi.fn(async () => { throw new Error('remote unavailable'); }) };
     await expect(new AccountsService(new AuditService(), registry([['official-y', connector]])).remove(account.id, true)).rejects.toThrow('remote unavailable');
     expect(await prisma.credential.count({ where: { accountId: account.id } })).toBe(1);
+    expect(await prisma.connectorCapability.findFirstOrThrow({ where: { accountId: account.id } })).toMatchObject({ enabled: true });
   });
   it('preserves the old credential when replacement encryption fails', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'old' } } } });
@@ -56,5 +57,17 @@ describe('account credential lifecycle', () => {
     const result = await new AccountsService(new AuditService()).remove(account.id, false);
     expect(result.retainedBusinessData).toBe(true);
     expect(await prisma.metricSnapshot.count({ where: { noteId: note.id } })).toBe(1);
+  });
+  it('serializes account deletion against a concurrent historical note insert', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official-race', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } } } });
+    let release!: () => void; let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; }); const gate = new Promise<void>((resolve) => { release = resolve; });
+    const connector = { getCapabilities: async () => ({ revokeAuthorization: true }), revokeAuthorization: async () => { started(); await gate; return { revoked: true as const }; } };
+    const removal = new AccountsService(new AuditService(), registry([['official-race', connector]])).remove(account.id, false);
+    await entered;
+    const noteInsert = prisma.note.create({ data: { accountId: account.id, connectorType: account.connectorType, platformId: crypto.randomUUID(), title: 'Race', publishedAt: new Date() } });
+    release();
+    await expect(removal).resolves.toMatchObject({ retainedBusinessData: false });
+    await expect(noteInsert).rejects.toThrow();
   });
 });

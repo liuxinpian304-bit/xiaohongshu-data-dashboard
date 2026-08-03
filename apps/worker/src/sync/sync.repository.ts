@@ -89,11 +89,13 @@ export class SyncRepository {
         }
         for (const metric of metrics) {
           const metadata = metric.metricMetadata?.[key];
+          if ((metadata?.aggregation ?? aggregation) !== definition.aggregation) throw new Error(`metric aggregation does not match definition: ${key}/${aggregationVersion}`);
           const identity = { noteId: note.id, metricDefinitionId: definition.id, capturedAt: new Date(metric.capturedAt) };
           if (identity.capturedAt < definition.effectiveFrom || (definition.effectiveTo && identity.capturedAt >= definition.effectiveTo)) throw new Error(`metric observation is outside definition effective interval: ${key}/${aggregationVersion}`);
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${identity.noteId}|${identity.metricDefinitionId}|${identity.capturedAt.toISOString()}`}))`;
           const existing = await tx.metricSnapshot.findFirst({ where: { ...identity, supersededAt: null } });
           const intendedWindowStart = metadata?.windowStart ? new Date(metadata.windowStart) : null; const intendedWindowEnd = metadata?.windowEnd ? new Date(metadata.windowEnd) : null;
+          if (Boolean(intendedWindowStart) !== Boolean(intendedWindowEnd)) throw new Error(`metric window must include both start and end: ${key}/${aggregationVersion}`);
           if ((intendedWindowStart && intendedWindowStart < definition.effectiveFrom) || (definition.effectiveTo && intendedWindowEnd && intendedWindowEnd > definition.effectiveTo) || (intendedWindowStart && intendedWindowEnd && intendedWindowEnd <= intendedWindowStart)) throw new Error(`metric window is outside definition effective interval: ${key}/${aggregationVersion}`);
           const observation = { availability: 'available' as const, value: metric[key], source: metric.source, aggregation: metadata?.aggregation ?? aggregation, aggregationVersion: metadata?.aggregationVersion ?? aggregationVersion, windowStart: intendedWindowStart, windowEnd: intendedWindowEnd, authoritativePeriod: metadata?.authoritativePeriod ?? false };
           const exact = existing && existing.availability === observation.availability && existing.value?.toString() === observation.value.toString()
@@ -103,7 +105,7 @@ export class SyncRepository {
           if (exact) continue;
           if (existing) {
             const correctedAt = new Date();
-            await tx.metricSnapshot.update({ where: { id: existing.id }, data: { supersededAt: correctedAt } });
+            await tx.$executeRaw`SELECT supersede_metric_snapshot(${existing.id}::uuid, ${correctedAt}::timestamptz)`;
             await tx.metricSnapshot.create({ data: { ...identity, ...observation, revision: existing.revision + 1, supersedesId: existing.id, correctedAt, correctionReason: 'changed_official_observation', sourceRunId: jobId } });
           } else {
             await tx.metricSnapshot.create({ data: { ...identity, ...observation, sourceRunId: jobId } });

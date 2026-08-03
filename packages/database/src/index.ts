@@ -1,4 +1,4 @@
-export { createDatabaseClient, prisma } from './client';
+export { createDatabaseClient, prisma, verifyRuntimeDatabaseRole } from './client';
 export type { DatabaseClient, TransactionClient } from './client';
 export { Prisma } from './client';
 export { CommentRepository } from './comment.repository';

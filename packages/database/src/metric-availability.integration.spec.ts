@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { prisma } from './client';
+import { createDatabaseClient, prisma, verifyRuntimeDatabaseRole } from './client';
 
 describe('metric availability persistence', () => {
   beforeEach(async () => {
@@ -118,5 +118,13 @@ describe('metric availability persistence', () => {
     const { note, definition } = await createMetricContext();
     const snapshot = await prisma.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: 'available', value: 1, capturedAt: new Date('2026-08-02'), source: 'official' } });
     await expect(prisma.metricSnapshot.delete({ where: { id: snapshot.id } })).rejects.toThrow('append-only');
+  });
+  it('accepts the restricted runtime role and rejects the migration owner at startup', async () => {
+    const database = new URL(process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:55432/xhs_dashboard').pathname.slice(1);
+    const runtime = createDatabaseClient(`postgresql://xhs_runtime:runtime_change_me@localhost:55432/${database}`);
+    process.env.DATABASE_REQUIRE_RUNTIME_ROLE = 'true';
+    await expect(verifyRuntimeDatabaseRole(runtime)).resolves.toBeUndefined();
+    await expect(verifyRuntimeDatabaseRole(prisma)).rejects.toThrow('not safely restricted');
+    delete process.env.DATABASE_REQUIRE_RUNTIME_ROLE; await runtime.$disconnect();
   });
 });

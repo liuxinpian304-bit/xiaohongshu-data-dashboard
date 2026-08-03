@@ -38,6 +38,7 @@ model Account {
   revocationRetainData    Boolean?
   revocationRequestedAt   DateTime?                 @db.Timestamptz(3)
   revocationFailure       String?
+  revocationOperationId   String?                   @db.Uuid
   createdAt               DateTime                  @default(now()) @db.Timestamptz(3)
   updatedAt               DateTime                  @updatedAt @db.Timestamptz(3)
   credentials             Credential[]
@@ -51,6 +52,7 @@ model Account {
   pushSubscriptions       PushSubscription[]
 
   @@unique([connectorType, platformId])
+  @@index([id, revocationOperationId, revocationState])
 }
 
 model Credential {

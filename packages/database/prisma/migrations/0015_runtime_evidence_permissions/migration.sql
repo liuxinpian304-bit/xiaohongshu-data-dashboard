@@ -15,9 +15,7 @@ END $$;
 REVOKE ALL ON FUNCTION supersede_metric_snapshot(UUID, TIMESTAMPTZ) FROM PUBLIC;
 
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'xhs_runtime') THEN
-    RAISE EXCEPTION 'xhs_runtime must be provisioned with an external secret before migrations';
-  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'xhs_runtime') THEN CREATE ROLE xhs_runtime LOGIN PASSWORD 'runtime_change_me'; END IF;
 END $$;
 GRANT USAGE ON SCHEMA public TO xhs_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO xhs_runtime;

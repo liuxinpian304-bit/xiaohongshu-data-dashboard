@@ -29,6 +29,7 @@ describe('dashboard API', () => {
   });
 
   it('returns dashboard data with explicit availability to an authenticated admin', async () => {
+    await prisma.metricDefinition.create({ data: { key: `e2e-${crypto.randomUUID()}`, displayName: 'E2E metric', unit: 'count', source: 'official', version: 'v1', aggregation: 'period_end', effectiveFrom: new Date('2026-01-01') } });
     const agent = request.agent(app.getHttpServer());
     const csrf = await agent.get('/auth/csrf').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').expect(200);
     await agent.post('/auth/login').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', csrf.body.csrfToken).send({ password: 'dashboard password' }).expect(201);

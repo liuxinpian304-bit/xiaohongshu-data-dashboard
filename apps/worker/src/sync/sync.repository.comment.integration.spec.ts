@@ -19,6 +19,8 @@ describe('SyncRepository concurrent comment inserts', () => {
     ]);
     expect(results.map((created) => created.length).sort()).toEqual([0, 1]);
     expect(await firstDb.comment.count({ where: { platformId: comment.platformId } })).toBe(1);
+    await firstDb.comment.deleteMany({ where: { note: { accountId: account.id } } });
+    await firstDb.note.deleteMany({ where: { accountId: account.id } });
     await firstDb.account.deleteMany({ where: { id: account.id } });
   });
 });

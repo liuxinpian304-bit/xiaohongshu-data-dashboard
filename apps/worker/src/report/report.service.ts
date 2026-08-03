@@ -1,4 +1,4 @@
-import { aggregateMetricSeries, getReportPeriod, type MetricAggregation, type ReportType } from '@xhs/domain';
+import { aggregateMetricSeriesWithTrace, getReportPeriod, type MetricAggregation, type ReportType } from '@xhs/domain';
 import type { DatabaseClient } from '@xhs/database';
 
 export type ReportStatus = 'complete' | 'awaiting_data';
@@ -109,7 +109,10 @@ export class ReportService {
         previousReportId: context.previousReportId,
         rebuildReason: context.rebuildReason,
         metrics: reportStatus === 'complete' ? aggregation.metrics : [],
-        evidenceRefs: snapshots.filter(({ id, revision }) => id && revision).map(({ id, revision }) => ({ snapshotId: id!, revision: revision! })),
+        evidenceRefs: reportStatus === 'complete' ? aggregation.usedEvidenceIds.map((id) => {
+          const evidence = snapshots.find((snapshot) => snapshot.id === id)!;
+          return { snapshotId: id, revision: evidence.revision! };
+        }) : [],
       }));
     }
 
@@ -220,7 +223,7 @@ function aggregateByMetric(noteIds: string[], definitions: RequiredMetricDefinit
     notes.set(snapshot.noteId, [...(notes.get(snapshot.noteId) ?? []), snapshot]);
     groups.set(snapshot.metricDefinitionId, notes);
   }
-  const metrics: Array<{ metricDefinitionId: string; value: number }> = []; const missing: Array<{ noteId: string; metricDefinitionId: string }> = [];
+  const metrics: Array<{ metricDefinitionId: string; value: number }> = []; const missing: Array<{ noteId: string; metricDefinitionId: string }> = []; const usedEvidenceIds = new Set<string>();
   for (const definition of definitions) {
     if (!definition.id) continue;
     const metricDefinitionId = definition.id; const notes = groups.get(metricDefinitionId) ?? new Map<string, CumulativeSnapshot[]>();
@@ -236,12 +239,12 @@ function aggregateByMetric(noteIds: string[], definitions: RequiredMetricDefinit
       const inside = values.filter(({ capturedAt }) => capturedAt >= segmentStart && capturedAt < segmentEndExclusive);
       const ordered = [...before, ...inside].filter((item, index, all) => all.findIndex(({ id, capturedAt }) => id ? id === item.id : capturedAt.getTime() === item.capturedAt.getTime()) === index).sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
       const hasRequiredBaseline = semantic !== 'cumulative_delta' || !ordered[0]?.aggregationVersion || ordered[0].capturedAt <= segmentStart;
-      const value = hasRequiredBaseline ? aggregateMetricSeries(semantic, ordered.map((item) => ({ value: item.value, authoritativePeriod: item.authoritativePeriod, windowStart: item.windowStart ?? undefined, windowEnd: item.windowEnd ?? undefined })), { start: segmentStart, endExclusive: segmentEndExclusive }) : null;
-      if (value === null) { available = false; missing.push({ noteId, metricDefinitionId }); } else total += value;
+      const trace = hasRequiredBaseline ? aggregateMetricSeriesWithTrace(semantic, ordered.map((item) => ({ evidenceId: item.id, value: item.value, authoritativePeriod: item.authoritativePeriod, windowStart: item.windowStart ?? undefined, windowEnd: item.windowEnd ?? undefined })), { start: segmentStart, endExclusive: segmentEndExclusive }) : { value: null, usedEvidenceIds: [] };
+      if (trace.value === null) { available = false; missing.push({ noteId, metricDefinitionId }); } else { total += trace.value; trace.usedEvidenceIds.forEach((id) => usedEvidenceIds.add(id)); }
     }
     if (available) metrics.push({ metricDefinitionId, value: total });
   }
-  return { metrics, missing };
+  return { metrics, missing, usedEvidenceIds: [...usedEvidenceIds] };
 }
 
 function calendarDates(start: Date, end: Date): string[] {

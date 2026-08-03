@@ -84,7 +84,7 @@ model Note {
   lastSeenAt    DateTime         @default(now()) @db.Timestamptz(3)
   createdAt     DateTime         @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime         @updatedAt @db.Timestamptz(3)
-  account       Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account       Account          @relation(fields: [accountId], references: [id], onDelete: Restrict)
   snapshots     MetricSnapshot[]
   comments      Comment[]
 
@@ -128,7 +128,7 @@ model MetricSnapshot {
   correctedAt        DateTime?           @db.Timestamptz(3)
   correctionReason   String?
   sourceRunId        String?
-  note               Note               @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  note               Note               @relation(fields: [noteId], references: [id], onDelete: Restrict)
   metricDefinition   MetricDefinition   @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
   supersedes         MetricSnapshot?    @relation("MetricSnapshotRevision", fields: [supersedesId], references: [id], onDelete: Restrict)
   supersededBy       MetricSnapshot?    @relation("MetricSnapshotRevision")
@@ -231,7 +231,8 @@ model Report {
   rebuildReason    String?
   generatedAt      DateTime       @default(now()) @db.Timestamptz(3)
   evidenceRefs     Json           @default("[]")
-  account          Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  provenanceStatus String         @default("complete")
+  account          Account        @relation(fields: [accountId], references: [id], onDelete: Restrict)
   metrics          ReportMetric[]
 
   @@unique([accountId, reportType, periodStart, periodEnd, version])

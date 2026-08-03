@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { CommentsService } from './comments.service';
 
 describe('safe comment CSV export', () => {
-  beforeEach(async () => { await prisma.syncJob.deleteMany(); await prisma.comment.deleteMany(); await prisma.note.deleteMany(); await prisma.account.deleteMany(); });
+  beforeEach(async () => { await prisma.syncJob.deleteMany({ where: { account: { connectorType: 'export-test' } } }); await prisma.comment.deleteMany({ where: { connectorType: 'export-test' } }); await prisma.note.deleteMany({ where: { connectorType: 'export-test' } }); await prisma.account.deleteMany({ where: { connectorType: 'export-test' } }); });
   async function seed(contents: string[]) {
     const account = await prisma.account.create({ data: { connectorType: 'export-test', platformId: crypto.randomUUID() } });
     const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'export-test', platformId: crypto.randomUUID(), title: 'note', publishedAt: new Date() } });

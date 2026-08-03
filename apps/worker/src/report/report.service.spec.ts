@@ -20,6 +20,21 @@ function storeWithSnapshots(snapshotDates: string[]): ReportStore {
 }
 
 describe('ReportService', () => {
+  it('persists only the exact snapshot revisions consumed by aggregation', async () => {
+    let created: any;
+    const store: ReportStore = {
+      listAccountIds: async () => ['account-1'], listNoteIds: async () => ['note-1'],
+      listRequiredMetricDefinitions: async () => [{ key: 'views', id: 'views', aggregation: 'period_end' }],
+      loadCumulativeMetrics: async () => [
+        { id: 'noise', revision: 1, metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date('2026-08-01T12:00:00+08:00'), value: 8, aggregation: 'period_end', authoritativePeriod: false },
+        { id: 'selected', revision: 2, metricDefinitionId: 'views', noteId: 'note-1', capturedAt: new Date('2026-08-01T23:00:00+08:00'), value: 11, aggregation: 'period_end', authoritativePeriod: true, windowEnd: new Date('2026-08-02T00:00:00+08:00') },
+      ],
+      createVersion: async (input) => { created = input; return { id: 'report', accountId: input.accountId, version: 1, status: input.status }; },
+    };
+    await new ReportService(store).generateReport('daily', new Date('2026-08-02T08:00:00+08:00'));
+    expect(created.metrics).toEqual([{ metricDefinitionId: 'views', value: 11 }]);
+    expect(created.evidenceRefs).toEqual([{ snapshotId: 'selected', revision: 2 }]);
+  });
   it('ignores a definition that starts after the historical report period', async () => {
     const store = storeWithSnapshots([]);
     store.listRequiredMetricDefinitions = async (_start, _end) => [];

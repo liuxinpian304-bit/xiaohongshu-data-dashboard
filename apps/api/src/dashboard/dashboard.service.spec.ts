@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { completedCollectionJobWhere, DashboardService, type DashboardStore } from './dashboard.service';
+import { completedCollectionJobWhere, DashboardService, filterDashboardEvidence, type DashboardStore } from './dashboard.service';
 
 const snap = (overrides: Partial<any> = {}) => ({ noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', aggregation: 'cumulative_delta', availability: 'available', value: '100', capturedAt: new Date('2025-12-28T10:00:00Z'), source: 'official', ...overrides });
 const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z')): DashboardStore => ({ async isAuthorizedOfficialAccount() { return true; }, async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta' }, { id: 'views-id', key: 'views', displayName: '访客', aggregation: 'cumulative_delta' }], snapshots, lastSyncedAt }; } });
 
 describe('DashboardService', () => {
+  it('does not use an old-definition baseline for the current definition segment', () => {
+    const definitions = [{ id: 'v2', effectiveFrom: new Date('2026-08-01'), effectiveTo: null }];
+    const evidence = filterDashboardEvidence(definitions, [
+      { metricDefinitionId: 'v1', capturedAt: new Date('2026-07-31') },
+      { metricDefinitionId: 'v2', capturedAt: new Date('2026-08-01T12:00:00Z') },
+    ]);
+    expect(evidence.map(({ metricDefinitionId }) => metricDefinitionId)).toEqual(['v2']);
+  });
   it('only considers completed collection jobs for lastSyncedAt, never comment exports', () => {
     const now = new Date();
     expect(completedCollectionJobWhere('official', 'account-1', now)).toEqual(expect.objectContaining({ status: 'succeeded', currentStage: 'complete', accountId: 'account-1' }));

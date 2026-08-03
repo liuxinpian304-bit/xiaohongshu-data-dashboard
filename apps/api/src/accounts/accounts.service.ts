@@ -58,12 +58,14 @@ export class AccountsService {
     const connector = this.connectors.resolve(account.connectorType); const capabilities = connector ? await connector.getCapabilities() : undefined;
     const officialRevocationSupported = capabilities?.revokeAuthorization === true && typeof connector?.revokeAuthorization === 'function';
     if (officialRevocationSupported) await connector!.revokeAuthorization!({ accountId: id });
+    const hasHistoricalData = Boolean(await prisma.note.count({ where: { accountId: id } }) || await prisma.report.count({ where: { accountId: id } }));
+    const retainedBusinessData = retainData || hasHistoricalData;
     await prisma.$transaction(async (tx) => {
       await tx.credential.deleteMany({ where: { accountId: id } });
-      if (!retainData) await tx.account.delete({ where: { id } });
+      if (!retainedBusinessData) await tx.account.delete({ where: { id } });
       else await tx.connectorCapability.updateMany({ where: { accountId: id }, data: { enabled: false } });
-      await tx.auditLog.create({ data: { actor: 'admin', action: 'account.deleted', entityType: 'Account', entityId: id, details: { retainData, officialRevocationSupported, revocation: officialRevocationSupported ? 'revoked' : 'unsupported' } } });
+      await tx.auditLog.create({ data: { actor: 'admin', action: 'account.deleted', entityType: 'Account', entityId: id, details: { requestedRetainData: retainData, retainedBusinessData, officialRevocationSupported, revocation: officialRevocationSupported ? 'revoked' : 'unsupported' } } });
     });
-    return { id, retainedBusinessData: retainData, credentialsDeleted: true, officialRevocationSupported };
+    return { id, retainedBusinessData, credentialsDeleted: true, officialRevocationSupported };
   }
 }

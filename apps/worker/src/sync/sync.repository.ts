@@ -90,9 +90,11 @@ export class SyncRepository {
         for (const metric of metrics) {
           const metadata = metric.metricMetadata?.[key];
           const identity = { noteId: note.id, metricDefinitionId: definition.id, capturedAt: new Date(metric.capturedAt) };
+          if (identity.capturedAt < definition.effectiveFrom || (definition.effectiveTo && identity.capturedAt >= definition.effectiveTo)) throw new Error(`metric observation is outside definition effective interval: ${key}/${aggregationVersion}`);
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${identity.noteId}|${identity.metricDefinitionId}|${identity.capturedAt.toISOString()}`}))`;
           const existing = await tx.metricSnapshot.findFirst({ where: { ...identity, supersededAt: null } });
           const intendedWindowStart = metadata?.windowStart ? new Date(metadata.windowStart) : null; const intendedWindowEnd = metadata?.windowEnd ? new Date(metadata.windowEnd) : null;
+          if ((intendedWindowStart && intendedWindowStart < definition.effectiveFrom) || (definition.effectiveTo && intendedWindowEnd && intendedWindowEnd > definition.effectiveTo) || (intendedWindowStart && intendedWindowEnd && intendedWindowEnd <= intendedWindowStart)) throw new Error(`metric window is outside definition effective interval: ${key}/${aggregationVersion}`);
           const observation = { availability: 'available' as const, value: metric[key], source: metric.source, aggregation: metadata?.aggregation ?? aggregation, aggregationVersion: metadata?.aggregationVersion ?? aggregationVersion, windowStart: intendedWindowStart, windowEnd: intendedWindowEnd, authoritativePeriod: metadata?.authoritativePeriod ?? false };
           const exact = existing && existing.availability === observation.availability && existing.value?.toString() === observation.value.toString()
             && existing.source === observation.source && existing.aggregation === observation.aggregation && existing.aggregationVersion === observation.aggregationVersion

@@ -35,7 +35,7 @@ export class PrismaDashboardStore implements DashboardStore {
   async read(periodStart: Date, periodEnd: Date, source: string, accountId: string | undefined, now: Date) {
     const noteWhere = { ...(accountId ? { accountId } : {}), connectorType: source, account: authorizedAccountWhere(source, now) };
     const [definitions, inPeriod, baselines, lastSync] = await Promise.all([
-      prisma.metricDefinition.findMany({ where: { source, effectiveFrom: { lte: periodEnd }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: periodStart } }] }, orderBy: [{ key: 'asc' }, { effectiveFrom: 'desc' }], distinct: ['key'], select: { id: true, key: true, displayName: true, aggregation: true } }),
+      prisma.metricDefinition.findMany({ where: { source, effectiveFrom: { lte: periodEnd }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: periodStart } }] }, orderBy: [{ key: 'asc' }, { effectiveFrom: 'asc' }], select: { id: true, key: true, displayName: true, aggregation: true, effectiveFrom: true, effectiveTo: true } }),
       prisma.metricSnapshot.findMany({
         where: { source, supersededAt: null, capturedAt: { gte: periodStart, lte: periodEnd }, note: noteWhere },
         orderBy: { capturedAt: 'asc' }, include: { metricDefinition: { select: { key: true, aggregation: true } }, note: { select: { id: true, title: true, accountId: true, publishedAt: true } } },
@@ -50,13 +50,22 @@ export class PrismaDashboardStore implements DashboardStore {
         orderBy: { completedAt: 'desc' }, select: { completedAt: true },
       }),
     ]);
+    const evidence = filterDashboardEvidence(definitions, [...baselines, ...inPeriod]);
     const map = (snapshot: (typeof inPeriod)[number]): DashboardSnapshot => ({
       noteId: snapshot.note.id, noteTitle: snapshot.note.title, accountId: snapshot.note.accountId, publishedAt: snapshot.note.publishedAt,
       metricDefinitionId: snapshot.metricDefinitionId, metricKey: snapshot.metricDefinition.key, aggregation: snapshot.aggregation, aggregationVersion: snapshot.aggregationVersion, windowStart: snapshot.windowStart, windowEnd: snapshot.windowEnd, authoritativePeriod: snapshot.authoritativePeriod, availability: snapshot.availability,
       value: snapshot.value?.toString() ?? null, capturedAt: snapshot.capturedAt, source: snapshot.source,
     });
-    return { definitions, snapshots: [...baselines.map(map), ...inPeriod.map(map)].sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()), lastSyncedAt: lastSync?.completedAt ?? null };
+    return { definitions, snapshots: evidence.map(map).sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()), lastSyncedAt: lastSync?.completedAt ?? null };
   }
+}
+
+export function filterDashboardEvidence<D extends { id: string; effectiveFrom: Date; effectiveTo: Date | null }, S extends { metricDefinitionId: string; capturedAt: Date }>(definitions: D[], snapshots: S[]): S[] {
+  const byId = new Map(definitions.map((definition) => [definition.id, definition]));
+  return snapshots.filter((snapshot) => {
+    const definition = byId.get(snapshot.metricDefinitionId);
+    return Boolean(definition && snapshot.capturedAt >= definition.effectiveFrom && (!definition.effectiveTo || snapshot.capturedAt < definition.effectiveTo));
+  });
 }
 
 type MetricValue = { key: string; aggregation: MetricAggregation; value: string | null; availability: DataAvailability };
@@ -71,8 +80,9 @@ function availabilityOf(items: DashboardSnapshot[]): DataAvailability {
 
 function seriesDeltas(snapshots: DashboardSnapshot[], start: Date, cutoff: Date): DeltaSnapshot[] {
   const groups = new Map<string, DashboardSnapshot[]>();
+  const compatibleKeys = new Set([...new Set(snapshots.map(({ metricKey }) => metricKey))].filter((key) => new Set(snapshots.filter((item) => item.metricKey === key).map(({ aggregation }) => aggregation)).size === 1));
   for (const item of snapshots.filter(({ capturedAt }) => capturedAt <= cutoff)) {
-    const key = `${item.noteId}:${item.metricDefinitionId}`;
+    const key = compatibleKeys.has(item.metricKey) ? `${item.noteId}:${item.metricKey}` : `${item.noteId}:${item.metricDefinitionId}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
   return [...groups.values()].map((items) => {

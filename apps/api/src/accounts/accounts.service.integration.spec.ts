@@ -5,7 +5,7 @@ import { AuditService } from '../common/audit.service';
 const registry = (entries: Array<[string, unknown]>) => ({ resolve: (type: string) => new Map(entries).get(type) }) as never;
 
 describe('account credential lifecycle', () => {
-  beforeEach(async () => { await prisma.auditLog.deleteMany(); await prisma.account.deleteMany(); process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64'); });
+  beforeEach(async () => { await prisma.auditLog.deleteMany(); await prisma.account.deleteMany({ where: { notes: { none: {} }, reports: { none: {} } } }); process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64'); });
   it('returns the complete public account projection from authorize and reauthorize', async () => {
     const service = new AccountsService(new AuditService());
     const created = await service.authorize({ connectorType: `projection-${crypto.randomUUID()}`, platformId: crypto.randomUUID(), displayName: 'Projection', secret: 'first', kind: 'oauth' });
@@ -47,5 +47,14 @@ describe('account credential lifecycle', () => {
     const first = await service.listAuthorizedOfficial(undefined, 2); const second = await service.listAuthorizedOfficial(first.pageInfo.nextCursor!, 2);
     expect([...first.items, ...second.items].map(({ id }) => id).sort()).toEqual(active.map(({ id }) => id).sort());
     expect(first.pageInfo.hasMore).toBe(true); expect(second.pageInfo.hasMore).toBe(false);
+  });
+  it('retains historical evidence when business-data deletion is requested', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official-delete', platformId: crypto.randomUUID() } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: account.connectorType, platformId: crypto.randomUUID(), title: 'Historical', publishedAt: new Date() } });
+    const definition = await prisma.metricDefinition.create({ data: { key: `delete-${crypto.randomUUID()}`, displayName: 'Historical', unit: 'count', source: 'official-delete', version: 'v1' } });
+    await prisma.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: 'available', value: 1, capturedAt: new Date(), source: 'official-delete' } });
+    const result = await new AccountsService(new AuditService()).remove(account.id, false);
+    expect(result.retainedBusinessData).toBe(true);
+    expect(await prisma.metricSnapshot.count({ where: { noteId: note.id } })).toBe(1);
   });
 });

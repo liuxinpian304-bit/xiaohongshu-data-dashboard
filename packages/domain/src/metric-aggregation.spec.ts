@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { aggregateCumulative, aggregateMetricSeries } from './metric-aggregation';
+import { aggregateCumulative, aggregateMetricSeries, aggregateMetricSeriesWithTrace } from './metric-aggregation';
 
 describe('aggregateCumulative', () => {
   it('uses the first and last snapshots instead of summing cumulative totals', () => {
@@ -9,6 +9,13 @@ describe('aggregateCumulative', () => {
 });
 
 describe('aggregateMetricSeries', () => {
+  it('returns only evidence actually consumed by each aggregation semantic', () => {
+    const start = new Date('2026-01-01'); const middle = new Date('2026-01-02'); const end = new Date('2026-01-03');
+    expect(aggregateMetricSeriesWithTrace('cumulative_delta', [{ evidenceId: 'base', value: 10 }, { evidenceId: 'middle', value: 12 }, { evidenceId: 'end', value: 15 }]).usedEvidenceIds).toEqual(['base', 'middle', 'end']);
+    expect(aggregateMetricSeriesWithTrace('period_end', [{ evidenceId: 'noise', value: 1 }, { evidenceId: 'chosen', value: 9, authoritativePeriod: true, windowEnd: end }], { start, endExclusive: end }).usedEvidenceIds).toEqual(['chosen']);
+    expect(aggregateMetricSeriesWithTrace('deduplicated_period', [{ evidenceId: 'chosen', value: 4, authoritativePeriod: true, windowStart: start, windowEnd: end }], { start, endExclusive: end }).usedEvidenceIds).toEqual(['chosen']);
+    expect(aggregateMetricSeriesWithTrace('sum_interval', [{ evidenceId: 'a', value: 3, authoritativePeriod: true, windowStart: start, windowEnd: middle }, { evidenceId: 'b', value: 4, authoritativePeriod: true, windowStart: middle, windowEnd: end }], { start, endExclusive: end }).usedEvidenceIds).toEqual(['a', 'b']);
+  });
   it('applies all explicit semantics without guessing deduplicated values', () => {
     expect(aggregateMetricSeries('cumulative_delta', [{ value: 100 }, { value: 120 }, { value: 4 }, { value: 9 }])).toBe(29);
     const start = new Date('2026-01-01'); const middle = new Date('2026-01-02'); const end = new Date('2026-01-03'); const period = { start, endExclusive: end };

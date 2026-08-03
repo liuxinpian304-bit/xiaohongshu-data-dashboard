@@ -32,7 +32,7 @@ describe('PrismaReportStore version allocation', () => {
 
     expect(created.map((report) => report.version).sort()).toEqual([1, 2]);
     expect(await firstDb.report.count({ where: { accountId: account.id } })).toBe(2);
-    await firstDb.account.delete({ where: { id: account.id } });
+    await firstDb.report.deleteMany({ where: { accountId: account.id } }); await firstDb.account.delete({ where: { id: account.id } });
   });
 
   it('does not merge version sequences for different report scopes', async () => {
@@ -50,7 +50,7 @@ describe('PrismaReportStore version allocation', () => {
     ]);
 
     expect([daily.version, weekly.version]).toEqual([1, 1]);
-    await firstDb.account.delete({ where: { id: account.id } });
+    await firstDb.report.deleteMany({ where: { accountId: account.id } }); await firstDb.account.delete({ where: { id: account.id } });
   });
 
   it('stores the triggering rebuild audit on the replacement version', async () => {
@@ -76,7 +76,7 @@ describe('PrismaReportStore version allocation', () => {
       backfillId: 'backfill-audit', rebuildJobId: 'report-rebuild-daily-backfill-audit',
       previousReportId: previous.id, rebuildReason: 'metric_snapshot_saved',
     });
-    await firstDb.account.delete({ where: { id: account.id } });
+    await firstDb.report.deleteMany({ where: { accountId: account.id } }); await firstDb.account.delete({ where: { id: account.id } });
   });
 
   it('keeps immutable evidence references on old report versions after a correction rebuild', async () => {
@@ -88,7 +88,7 @@ describe('PrismaReportStore version allocation', () => {
     await store.createVersion({ ...base, evidenceRefs: [{ snapshotId: correctedSnapshot, revision: 2 }], rebuildReason: 'metric_snapshot_corrected' });
     const reports = await firstDb.report.findMany({ where: { accountId: account.id }, orderBy: { version: 'asc' } });
     expect(reports.map(({ evidenceRefs }) => evidenceRefs)).toEqual([[{ snapshotId: oldSnapshot, revision: 1 }], [{ snapshotId: correctedSnapshot, revision: 2 }]]);
-    await firstDb.account.delete({ where: { id: account.id } });
+    await firstDb.report.deleteMany({ where: { accountId: account.id } }); await firstDb.account.delete({ where: { id: account.id } });
   });
 
   it('ignores a stale awaiting version when the latest report in its scope is complete', async () => {
@@ -99,6 +99,6 @@ describe('PrismaReportStore version allocation', () => {
     await store.createVersion({ ...base, status: 'complete', missingDates: [], missingFields: [] });
     const affected = await new PrismaAffectedReportStore(firstDb).findAffectedReports({ backfillId: 'bf', accountId: account.id, noteId: crypto.randomUUID(), capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' });
     expect(affected).toEqual([]);
-    await firstDb.account.delete({ where: { id: account.id } });
+    await firstDb.report.deleteMany({ where: { accountId: account.id } }); await firstDb.account.delete({ where: { id: account.id } });
   });
 });

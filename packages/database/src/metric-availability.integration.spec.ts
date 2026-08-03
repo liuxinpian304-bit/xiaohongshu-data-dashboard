@@ -6,7 +6,7 @@ describe('metric availability persistence', () => {
   beforeEach(async () => {
     await prisma.reportMetric.deleteMany();
     await prisma.report.deleteMany();
-    await prisma.metricSnapshot.deleteMany();
+    await prisma.$executeRawUnsafe('TRUNCATE TABLE "MetricSnapshot" CASCADE');
     await prisma.metricDefinition.deleteMany();
     await prisma.note.deleteMany();
     await prisma.account.deleteMany();
@@ -112,5 +112,11 @@ describe('metric availability persistence', () => {
         },
       }),
     ).rejects.toMatchObject({ code: 'P2039' });
+  });
+
+  it('rejects physical deletion of historical metric evidence', async () => {
+    const { note, definition } = await createMetricContext();
+    const snapshot = await prisma.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: 'available', value: 1, capturedAt: new Date('2026-08-02'), source: 'official' } });
+    await expect(prisma.metricSnapshot.delete({ where: { id: snapshot.id } })).rejects.toThrow('append-only');
   });
 });

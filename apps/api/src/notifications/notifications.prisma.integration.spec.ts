@@ -8,7 +8,7 @@ import { AuditService } from '../common/audit.service';
 
 describe('Prisma notifications API store', () => {
   const service = new NotificationsService(new PrismaNotificationsStore(), new PushEndpointPolicy(['push.example.test'], async () => ['8.8.8.8']), new AuditService());
-  beforeEach(async () => { await prisma.pushSubscription.deleteMany(); await prisma.notification.deleteMany(); await prisma.auditLog.deleteMany(); await prisma.account.deleteMany(); });
+  beforeEach(async () => { await prisma.pushSubscription.deleteMany(); await prisma.notification.deleteMany(); await prisma.auditLog.deleteMany(); await prisma.account.deleteMany({ where: { notes: { none: {} }, reports: { none: {} } } }); });
   afterAll(async () => prisma.$disconnect());
 
   it('lists all managed-account notifications and persists read state', async () => {

@@ -38,11 +38,14 @@ describe('SyncService', () => {
 
   beforeEach(async () => {
     await prisma.commentSyncCompleteness.deleteMany();
+    await prisma.reportMetric.deleteMany();
+    await prisma.report.deleteMany();
     await prisma.syncCheckpoint.deleteMany();
     await prisma.syncStep.deleteMany();
     await prisma.syncJob.deleteMany();
     await prisma.comment.deleteMany();
-    await prisma.metricSnapshot.deleteMany();
+    await prisma.$executeRawUnsafe('TRUNCATE TABLE "MetricSnapshot" CASCADE');
+    await prisma.metricDefinition.deleteMany();
     await prisma.note.deleteMany();
     await prisma.connectorCapability.deleteMany();
     await prisma.credential.deleteMany();
@@ -328,6 +331,17 @@ describe('SyncService', () => {
     const rows = await prisma.metricSnapshot.findMany({ where: { note: { platformId: 'concurrent-correction-note' }, metricDefinition: { key: 'views' } }, orderBy: { revision: 'asc' } });
     expect(rows.map(({ revision }) => revision)).toEqual([1, 2, 3]);
     expect(rows.filter(({ supersededAt }) => supersededAt === null)).toHaveLength(1);
+  });
+
+  it('rejects observations and windows outside the selected definition interval', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'interval-account' } });
+    await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'interval-note', title: 'Interval', publishedAt: new Date() } });
+    await prisma.metricDefinition.createMany({ data: ['views', 'likes', 'comments'].map((key) => ({ key, displayName: key, unit: 'count', source: 'official', version: 'official-closed-test', effectiveFrom: new Date('2025-01-01'), effectiveTo: new Date('2025-07-01') })) });
+    await repository.startJob('interval-job', account.id);
+    const metadata = { aggregation: 'cumulative_delta' as const, aggregationVersion: 'official-closed-test', authoritativePeriod: false };
+    await expect(repository.saveMetrics('interval-job', 'official', 'interval-note', [{ noteId: 'interval-note', capturedAt: '2026-08-01T13:00:00Z', views: 1, likes: 1, comments: 1, source: 'official', metricMetadata: { views: metadata, likes: metadata, comments: metadata } }])).rejects.toThrow('effective interval');
+    const invalidWindow = { ...metadata, windowStart: '2024-12-31T00:00:00Z', windowEnd: '2025-01-02T00:00:00Z' };
+    await expect(repository.saveMetrics('interval-job', 'official', 'interval-note', [{ noteId: 'interval-note', capturedAt: '2025-06-01T13:00:00Z', views: 1, likes: 1, comments: 1, source: 'official', metricMetadata: { views: invalidWindow, likes: invalidWindow, comments: invalidWindow } }])).rejects.toThrow('window is outside');
   });
 
   it('clears unverifiable verification state after a successful retry', async () => {

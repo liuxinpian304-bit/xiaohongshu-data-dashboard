@@ -100,6 +100,8 @@ model MetricDefinition {
   aggregation   MetricAggregation @default(cumulative_delta)
   source        String            @default("legacy")
   version       String            @default("legacy-v1")
+  effectiveFrom DateTime          @default(now()) @db.Timestamptz(3)
+  effectiveTo   DateTime?         @db.Timestamptz(3)
   createdAt     DateTime         @default(now()) @db.Timestamptz(3)
   snapshots     MetricSnapshot[]
   reportMetrics ReportMetric[]
@@ -120,10 +122,18 @@ model MetricSnapshot {
   windowStart        DateTime?          @db.Timestamptz(3)
   windowEnd          DateTime?          @db.Timestamptz(3)
   authoritativePeriod Boolean           @default(false)
+  revision           Int                @default(1)
+  supersedesId       String?            @unique @db.Uuid
+  supersededAt       DateTime?           @db.Timestamptz(3)
+  correctedAt        DateTime?           @db.Timestamptz(3)
+  correctionReason   String?
+  sourceRunId        String?
   note               Note               @relation(fields: [noteId], references: [id], onDelete: Cascade)
   metricDefinition   MetricDefinition   @relation(fields: [metricDefinitionId], references: [id], onDelete: Restrict)
+  supersedes         MetricSnapshot?    @relation("MetricSnapshotRevision", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy       MetricSnapshot?    @relation("MetricSnapshotRevision")
 
-  @@unique([noteId, metricDefinitionId, capturedAt])
+  @@unique([noteId, metricDefinitionId, capturedAt, revision])
   @@index([capturedAt])
 }
 
@@ -220,6 +230,7 @@ model Report {
   previousReportId String?        @db.Uuid
   rebuildReason    String?
   generatedAt      DateTime       @default(now()) @db.Timestamptz(3)
+  evidenceRefs     Json           @default("[]")
   account          Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
   metrics          ReportMetric[]
 

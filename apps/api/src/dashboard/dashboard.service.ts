@@ -35,13 +35,13 @@ export class PrismaDashboardStore implements DashboardStore {
   async read(periodStart: Date, periodEnd: Date, source: string, accountId: string | undefined, now: Date) {
     const noteWhere = { ...(accountId ? { accountId } : {}), connectorType: source, account: authorizedAccountWhere(source, now) };
     const [definitions, inPeriod, baselines, lastSync] = await Promise.all([
-      prisma.metricDefinition.findMany({ where: { source }, orderBy: [{ key: 'asc' }, { version: 'desc' }], distinct: ['key'], select: { id: true, key: true, displayName: true, aggregation: true } }),
+      prisma.metricDefinition.findMany({ where: { source, effectiveFrom: { lte: periodEnd }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: periodStart } }] }, orderBy: [{ key: 'asc' }, { effectiveFrom: 'desc' }], distinct: ['key'], select: { id: true, key: true, displayName: true, aggregation: true } }),
       prisma.metricSnapshot.findMany({
-        where: { source, capturedAt: { gte: periodStart, lte: periodEnd }, note: noteWhere },
+        where: { source, supersededAt: null, capturedAt: { gte: periodStart, lte: periodEnd }, note: noteWhere },
         orderBy: { capturedAt: 'asc' }, include: { metricDefinition: { select: { key: true, aggregation: true } }, note: { select: { id: true, title: true, accountId: true, publishedAt: true } } },
       }),
       prisma.metricSnapshot.findMany({
-        where: { source, capturedAt: { lt: periodStart }, note: noteWhere },
+        where: { source, supersededAt: null, capturedAt: { lt: periodStart }, note: noteWhere },
         orderBy: { capturedAt: 'desc' }, distinct: ['noteId', 'metricDefinitionId'],
         include: { metricDefinition: { select: { key: true, aggregation: true } }, note: { select: { id: true, title: true, accountId: true, publishedAt: true } } },
       }),

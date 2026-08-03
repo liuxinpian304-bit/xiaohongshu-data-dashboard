@@ -283,10 +283,10 @@ describe('SyncService', () => {
     const semanticKey = `semantic-views-${crypto.randomUUID()}`;
     const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'semantic-account' } });
     const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'semantic-note', title: 'Semantic', publishedAt: new Date() } });
-    const v1 = await prisma.metricDefinition.create({ data: { key: semanticKey, displayName: '浏览', unit: 'count', source: 'official', version: 'official-v1', aggregation: 'cumulative_delta' } });
+    const v1 = await prisma.metricDefinition.create({ data: { key: semanticKey, displayName: '浏览', unit: 'count', source: 'official', version: 'official-v1', aggregation: 'cumulative_delta', effectiveFrom: new Date('2026-01-01'), effectiveTo: new Date('2026-02-01') } });
     const snapshot = await prisma.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: v1.id, availability: 'available', value: 10, capturedAt: new Date(), source: 'official', aggregation: 'cumulative_delta', aggregationVersion: 'official-v1' } });
     await prisma.metricDefinition.createMany({ data: [
-      { key: semanticKey, displayName: '浏览', unit: 'count', source: 'official', version: 'official-v2', aggregation: 'period_end' },
+      { key: semanticKey, displayName: '浏览', unit: 'count', source: 'official', version: 'official-v2', aggregation: 'period_end', effectiveFrom: new Date('2026-02-01') },
       { key: semanticKey, displayName: '浏览', unit: 'count', source: 'mock', version: 'mock-v1', aggregation: 'sum_interval' },
     ] });
     expect(await prisma.metricDefinition.count({ where: { key: semanticKey } })).toBe(3);
@@ -302,6 +302,32 @@ describe('SyncService', () => {
     const before = await prisma.metricSnapshot.findFirstOrThrow({ where: { note: { platformId: 'replay-note' }, metricDefinition: { key: 'views', source: 'official' } } });
     await expect(repository.saveMetrics('replay-job', 'official', 'replay-note', [{ noteId: 'replay-note', capturedAt, views: 999, likes: 999, comments: 999, source: 'mock' }])).rejects.toThrow('source');
     expect(await prisma.metricSnapshot.findUniqueOrThrow({ where: { id: before.id } })).toMatchObject({ value: before.value, source: 'official', aggregation: before.aggregation, aggregationVersion: before.aggregationVersion });
+  });
+
+  it('keeps exact metric replays idempotent and appends changed observations as revisions', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'correction-account' } });
+    await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'correction-note', title: 'Correction', publishedAt: new Date() } });
+    await repository.startJob('correction-job', account.id);
+    const base = { noteId: 'correction-note', capturedAt: '2026-08-01T12:00:00.000Z', views: 10, likes: 2, comments: 1, source: 'official' as const };
+    await repository.saveMetrics('correction-job', 'official', 'correction-note', [base]);
+    await repository.saveMetrics('correction-job', 'official', 'correction-note', [base]);
+    expect(await prisma.metricSnapshot.count({ where: { note: { platformId: 'correction-note' }, metricDefinition: { key: 'views' } } })).toBe(1);
+    await repository.saveMetrics('correction-job', 'official', 'correction-note', [{ ...base, views: 11 }]);
+    const rows = await prisma.metricSnapshot.findMany({ where: { note: { platformId: 'correction-note' }, metricDefinition: { key: 'views' } }, orderBy: { revision: 'asc' } });
+    expect(rows.map(({ revision, value, supersededAt }) => [revision, value?.toString(), supersededAt !== null])).toEqual([[1, '10', true], [2, '11', false]]);
+    expect(rows[1]?.supersedesId).toBe(rows[0]?.id);
+  });
+
+  it('serializes concurrent conflicting metric corrections without losing a revision', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'concurrent-correction-account' } });
+    await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'concurrent-correction-note', title: 'Correction', publishedAt: new Date() } });
+    await repository.startJob('concurrent-correction-job', account.id);
+    const base = { noteId: 'concurrent-correction-note', capturedAt: '2026-08-01T12:00:00.000Z', views: 10, likes: 2, comments: 1, source: 'official' as const };
+    await repository.saveMetrics('concurrent-correction-job', 'official', 'concurrent-correction-note', [base]);
+    await Promise.all([11, 12].map((views) => repository.saveMetrics('concurrent-correction-job', 'official', 'concurrent-correction-note', [{ ...base, views }])));
+    const rows = await prisma.metricSnapshot.findMany({ where: { note: { platformId: 'concurrent-correction-note' }, metricDefinition: { key: 'views' } }, orderBy: { revision: 'asc' } });
+    expect(rows.map(({ revision }) => revision)).toEqual([1, 2, 3]);
+    expect(rows.filter(({ supersededAt }) => supersededAt === null)).toHaveLength(1);
   });
 
   it('clears unverifiable verification state after a successful retry', async () => {

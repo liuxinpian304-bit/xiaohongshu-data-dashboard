@@ -20,6 +20,37 @@ function storeWithSnapshots(snapshotDates: string[]): ReportStore {
 }
 
 describe('ReportService', () => {
+  it('ignores a definition that starts after the historical report period', async () => {
+    const store = storeWithSnapshots([]);
+    store.listRequiredMetricDefinitions = async (_start, _end) => [];
+    const result = await new ReportService(store).generateReport('daily', new Date('2026-08-02T00:05:00+08:00'), { accountId: 'account-1' });
+    expect(result.missingFields).toEqual([]);
+  });
+
+  it('marks an incompatible definition transition inside the period explicitly', async () => {
+    const store = storeWithSnapshots([]);
+    store.listRequiredMetricDefinitions = async () => [{ key: 'views', segments: [
+      { id: 'views-v1', aggregation: 'cumulative_delta', effectiveFrom: new Date('2026-07-01Z'), effectiveTo: new Date('2026-08-01T12:00:00+08:00') },
+      { id: 'views-v2', aggregation: 'period_end', effectiveFrom: new Date('2026-08-01T12:00:00+08:00'), effectiveTo: null },
+    ] }];
+    const result = await new ReportService(store).generateReport('daily', new Date('2026-08-02T00:05:00+08:00'), { accountId: 'account-1' });
+    expect(result.missingFields[0]?.reason).toBe('metric_definition_transition');
+  });
+  it('combines compatible definition segments when each segment has authoritative coverage', async () => {
+    const store = storeWithSnapshots([]);
+    store.listRequiredMetricDefinitions = async () => [{ key: 'views', segments: [
+      { id: 'views-v1', aggregation: 'cumulative_delta', effectiveFrom: new Date('2026-07-01Z'), effectiveTo: new Date('2026-08-01T12:00:00+08:00') },
+      { id: 'views-v2', aggregation: 'cumulative_delta', effectiveFrom: new Date('2026-08-01T12:00:00+08:00'), effectiveTo: null },
+    ] }];
+    store.loadCumulativeMetrics = async () => [
+      { metricDefinitionId: 'views-v1', noteId: 'note-1', capturedAt: new Date('2026-07-31T23:00:00+08:00'), value: 10, aggregation: 'cumulative_delta', aggregationVersion: 'v1', id: 's1', revision: 1 },
+      { metricDefinitionId: 'views-v1', noteId: 'note-1', capturedAt: new Date('2026-08-01T11:59:00+08:00'), value: 15, aggregation: 'cumulative_delta', aggregationVersion: 'v1', id: 's2', revision: 1 },
+      { metricDefinitionId: 'views-v2', noteId: 'note-1', capturedAt: new Date('2026-08-01T12:00:00+08:00'), value: 15, aggregation: 'cumulative_delta', aggregationVersion: 'v2', id: 's3', revision: 1 },
+      { metricDefinitionId: 'views-v2', noteId: 'note-1', capturedAt: new Date('2026-08-01T23:59:00+08:00'), value: 20, aggregation: 'cumulative_delta', aggregationVersion: 'v2', id: 's4', revision: 1 },
+    ];
+    const result = await new ReportService(store).generateReport('daily', new Date('2026-08-02T00:05:00+08:00'), { accountId: 'account-1' });
+    expect(result.status).toBe('complete');
+  });
   it('marks a daily report awaiting data when its required day has no snapshot', async () => {
     const service = new ReportService(storeWithSnapshots([]));
 

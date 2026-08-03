@@ -10,7 +10,7 @@ import { AppModule } from './app.module';
 
 import { SafeErrorFilter } from './common/error.filter';
 import { validateAdminPasswordHash } from './auth/password-policy';
-import { AccountDeletionDto, AccountDto, AccountStateDto, AuthCsrfResponseDto, AuthLoginResponseDto, AuthorizeAccountDto, BackgroundExportDto, CommentDto, ConnectorCapabilityDto, CreateJobDto, DashboardResponseDto, DeleteAccountDto, ErrorDto, LoginDto, MissingReportFieldDto, NoteDto, NotificationDto, OkResponseDto, PageInfoDto, PushSubscriptionRequestDto, PushSubscriptionResponseDto, ReportDto, ReportMetricDto, ReauthorizeAccountDto, SyncJobDto } from './common/api.dto';
+import { AccountDeletionDto, AccountDto, AccountStateDto, AuthCsrfResponseDto, AuthLoginResponseDto, AuthorizeAccountDto, BackgroundExportDto, CommentDto, ConnectorCapabilityDto, CreateJobDto, DashboardResponseDto, DeleteAccountDto, ErrorDto, LoginDto, MissingReportFieldDto, NoteDto, NotificationDto, OkResponseDto, PageInfoDto, PushSubscriptionRequestDto, PushSubscriptionResponseDto, ReportDto, ReportEvidenceRefDto, ReportMetricDto, ReauthorizeAccountDto, SyncJobDto } from './common/api.dto';
 import { trustProxySetting } from './auth/proxy-config';
 
 export function configureApp(app: INestApplication) {
@@ -20,7 +20,7 @@ export function configureApp(app: INestApplication) {
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true }));
   app.useGlobalFilters(new SafeErrorFilter());
   const config = new DocumentBuilder().setTitle('Xiaohongshu Dashboard API').setVersion('1.0').addCookieAuth('admin_session').build();
-  const models = [LoginDto, AuthorizeAccountDto, ReauthorizeAccountDto, DeleteAccountDto, CreateJobDto, PushSubscriptionRequestDto, ErrorDto, PageInfoDto, ConnectorCapabilityDto, AccountDto, SyncJobDto, NoteDto, CommentDto, MissingReportFieldDto, ReportMetricDto, ReportDto, NotificationDto, DashboardResponseDto, AuthCsrfResponseDto, AuthLoginResponseDto, OkResponseDto, AccountStateDto, AccountDeletionDto, PushSubscriptionResponseDto, BackgroundExportDto];
+  const models = [LoginDto, AuthorizeAccountDto, ReauthorizeAccountDto, DeleteAccountDto, CreateJobDto, PushSubscriptionRequestDto, ErrorDto, PageInfoDto, ConnectorCapabilityDto, AccountDto, SyncJobDto, NoteDto, CommentDto, MissingReportFieldDto, ReportEvidenceRefDto, ReportMetricDto, ReportDto, NotificationDto, DashboardResponseDto, AuthCsrfResponseDto, AuthLoginResponseDto, OkResponseDto, AccountStateDto, AccountDeletionDto, PushSubscriptionResponseDto, BackgroundExportDto];
   const document = SwaggerModule.createDocument(app, config, { operationIdFactory: (controller, method) => `${controller}_${method}`, extraModels: models });
   for (const [path, item] of Object.entries(document.paths)) for (const [method, operation] of Object.entries(item ?? {})) {
     if (!operation || !['get', 'post', 'patch', 'delete'].includes(method)) continue;

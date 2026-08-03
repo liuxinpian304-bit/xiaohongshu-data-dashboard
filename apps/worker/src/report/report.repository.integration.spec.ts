@@ -79,6 +79,18 @@ describe('PrismaReportStore version allocation', () => {
     await firstDb.account.delete({ where: { id: account.id } });
   });
 
+  it('keeps immutable evidence references on old report versions after a correction rebuild', async () => {
+    const account = await firstDb.account.create({ data: { connectorType: 'integration-report', platformId: crypto.randomUUID() } });
+    const store = new PrismaReportStore(firstDb);
+    const base = { accountId: account.id, type: 'daily' as const, periodStart: new Date('2026-08-01T00:00:00+08:00'), periodEnd: new Date('2026-08-01T23:59:59.999+08:00'), status: 'complete' as const, missingDates: [], missingFields: [], metrics: [] };
+    const oldSnapshot = crypto.randomUUID(); const correctedSnapshot = crypto.randomUUID();
+    await store.createVersion({ ...base, evidenceRefs: [{ snapshotId: oldSnapshot, revision: 1 }] });
+    await store.createVersion({ ...base, evidenceRefs: [{ snapshotId: correctedSnapshot, revision: 2 }], rebuildReason: 'metric_snapshot_corrected' });
+    const reports = await firstDb.report.findMany({ where: { accountId: account.id }, orderBy: { version: 'asc' } });
+    expect(reports.map(({ evidenceRefs }) => evidenceRefs)).toEqual([[{ snapshotId: oldSnapshot, revision: 1 }], [{ snapshotId: correctedSnapshot, revision: 2 }]]);
+    await firstDb.account.delete({ where: { id: account.id } });
+  });
+
   it('ignores a stale awaiting version when the latest report in its scope is complete', async () => {
     const account = await firstDb.account.create({ data: { connectorType: 'integration-report', platformId: crypto.randomUUID() } });
     const store = new PrismaReportStore(firstDb);

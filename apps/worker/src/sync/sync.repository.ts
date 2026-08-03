@@ -67,7 +67,8 @@ export class SyncRepository {
     const event = await this.db.$transaction(async (tx) => {
       const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
       const capturedDates = backfillBusinessDates(metrics);
-      const backfillId = createHash('sha256').update(`${jobId}\0${note.id}\0${capturedDates.join(',')}`).digest('hex').slice(0, 32);
+      const observationDigest = createHash('sha256').update(JSON.stringify(metrics.map(({ capturedAt, views, likes, comments, source, metricMetadata }) => ({ capturedAt, views, likes, comments, source, metricMetadata })))).digest('hex');
+      const backfillId = createHash('sha256').update(`${jobId}\0${note.id}\0${capturedDates.join(',')}\0${observationDigest}`).digest('hex').slice(0, 32);
       const source = metrics[0]?.source ?? (connectorType === 'mock' ? 'mock' : 'official');
       const expectedSource = connectorType === 'mock' ? 'mock' : 'official';
       if (source !== expectedSource || metrics.some((metric) => metric.source !== expectedSource)) throw new Error('metric source does not match connector source');
@@ -76,22 +77,35 @@ export class SyncRepository {
         ['views', '浏览量', semantics.views], ['likes', '点赞量', semantics.likes], ['comments', '评论量', semantics.comments],
       ] as const;
       for (const [key, displayName, aggregation] of definitions) {
-        const aggregationVersion = `${source}-v1`;
-        const definition = await tx.metricDefinition.upsert({
-          where: { key_source_version: { key, source, version: aggregationVersion } },
-          create: { key, displayName, unit: 'count', aggregation, source, version: aggregationVersion }, update: {},
-        });
+        const aggregationVersion = metrics[0]?.metricMetadata?.[key]?.aggregationVersion ?? `${source}-v1`;
+        const effectiveFrom = new Date(Math.min(...metrics.map(({ capturedAt }) => new Date(capturedAt).getTime())));
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${key}|${source}`}))`;
+        let definition = await tx.metricDefinition.findUnique({ where: { key_source_version: { key, source, version: aggregationVersion } } });
+        if (!definition) {
+          const current = await tx.metricDefinition.findFirst({ where: { key, source, effectiveTo: null }, orderBy: { effectiveFrom: 'desc' } });
+          if (current && effectiveFrom <= current.effectiveFrom) throw new Error('metric definition transition must move forward');
+          if (current) await tx.metricDefinition.update({ where: { id: current.id }, data: { effectiveTo: effectiveFrom } });
+          definition = await tx.metricDefinition.create({ data: { key, displayName, unit: 'count', aggregation: metrics[0]?.metricMetadata?.[key]?.aggregation ?? aggregation, source, version: aggregationVersion, effectiveFrom } });
+        }
         for (const metric of metrics) {
           const metadata = metric.metricMetadata?.[key];
           const identity = { noteId: note.id, metricDefinitionId: definition.id, capturedAt: new Date(metric.capturedAt) };
-          const existing = await tx.metricSnapshot.findUnique({ where: { noteId_metricDefinitionId_capturedAt: identity } });
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${identity.noteId}|${identity.metricDefinitionId}|${identity.capturedAt.toISOString()}`}))`;
+          const existing = await tx.metricSnapshot.findFirst({ where: { ...identity, supersededAt: null } });
           const intendedWindowStart = metadata?.windowStart ? new Date(metadata.windowStart) : null; const intendedWindowEnd = metadata?.windowEnd ? new Date(metadata.windowEnd) : null;
-          if (existing && (existing.source !== metric.source || existing.aggregation !== (metadata?.aggregation ?? aggregation) || existing.aggregationVersion !== (metadata?.aggregationVersion ?? aggregationVersion) || existing.windowStart?.getTime() !== intendedWindowStart?.getTime() || existing.windowEnd?.getTime() !== intendedWindowEnd?.getTime() || existing.authoritativePeriod !== (metadata?.authoritativePeriod ?? false))) throw new Error('metric snapshot semantic conflict');
-          await tx.metricSnapshot.upsert({
-            where: { noteId_metricDefinitionId_capturedAt: identity },
-            create: { noteId: note.id, metricDefinitionId: definition.id, availability: 'available', value: metric[key], capturedAt: new Date(metric.capturedAt), source: metric.source, aggregation: metadata?.aggregation ?? aggregation, aggregationVersion: metadata?.aggregationVersion ?? aggregationVersion, windowStart: intendedWindowStart, windowEnd: intendedWindowEnd, authoritativePeriod: metadata?.authoritativePeriod ?? false },
-            update: { availability: 'available', value: metric[key] },
-          });
+          const observation = { availability: 'available' as const, value: metric[key], source: metric.source, aggregation: metadata?.aggregation ?? aggregation, aggregationVersion: metadata?.aggregationVersion ?? aggregationVersion, windowStart: intendedWindowStart, windowEnd: intendedWindowEnd, authoritativePeriod: metadata?.authoritativePeriod ?? false };
+          const exact = existing && existing.availability === observation.availability && existing.value?.toString() === observation.value.toString()
+            && existing.source === observation.source && existing.aggregation === observation.aggregation && existing.aggregationVersion === observation.aggregationVersion
+            && existing.windowStart?.getTime() === observation.windowStart?.getTime() && existing.windowEnd?.getTime() === observation.windowEnd?.getTime()
+            && existing.authoritativePeriod === observation.authoritativePeriod;
+          if (exact) continue;
+          if (existing) {
+            const correctedAt = new Date();
+            await tx.metricSnapshot.update({ where: { id: existing.id }, data: { supersededAt: correctedAt } });
+            await tx.metricSnapshot.create({ data: { ...identity, ...observation, revision: existing.revision + 1, supersedesId: existing.id, correctedAt, correctionReason: 'changed_official_observation', sourceRunId: jobId } });
+          } else {
+            await tx.metricSnapshot.create({ data: { ...identity, ...observation, sourceRunId: jobId } });
+          }
         }
       }
       await this.upsertCheckpoint(tx, jobId, 'metrics', notePlatformId, null);

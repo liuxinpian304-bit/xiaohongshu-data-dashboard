@@ -12,7 +12,7 @@ export class CommentsController {
   private filter(query: CommentQueryDto): CommentFilter {
     const from = query.from ? strictDate(query.from, 'from') : undefined; const to = query.to ? strictDate(query.to, 'to') : undefined;
     if (from && to && from > to) throw new BadRequestException('from must not be after to');
-    return { accountId: query.accountId ? uuid(query.accountId, 'accountId') : undefined, accountIds: query.accountIds, noteId: query.noteId ? uuid(query.noteId, 'noteId') : undefined, from, to };
+    return { accountId: query.accountId ? uuid(query.accountId, 'accountId') : undefined, accountIds: query.accountIds, noteId: query.noteId ? uuid(query.noteId, 'noteId') : undefined, from, to, keyword: query.keyword, newOnly: query.newOnly === 'true' };
   }
   @Get() list(@Query(dtoPipe(CommentQueryDto)) query: CommentQueryDto) { const p = pagination(query); return this.comments.list(this.filter(query), p.cursor, p.limit); }
   @Get('export.csv') async export(@Query(dtoPipe(CommentQueryDto)) query: CommentQueryDto, @Res() response: Response) {

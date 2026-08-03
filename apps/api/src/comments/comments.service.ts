@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { page } from '../common/pagination.dto';
 
-export type CommentFilter = { accountId?: string; accountIds?: string[]; noteId?: string; from?: Date; to?: Date };
+export type CommentFilter = { accountId?: string; accountIds?: string[]; noteId?: string; from?: Date; to?: Date; keyword?: string; newOnly?: boolean };
 type ExportLimits = { maxRows: number; maxBytes: number; chunkSize: number };
 const defaults: ExportLimits = { maxRows: 100_000, maxBytes: 50 * 1024 * 1024, chunkSize: 500 };
 const csvCell = (value: unknown) => { let text = String(value ?? ''); if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"', '""')}"`; };
@@ -15,7 +15,7 @@ const csvRow = (row: { id: string; noteId: string | null; content: string; publi
 @Injectable()
 export class CommentsService {
   constructor(private readonly limits: ExportLimits = defaults) {}
-  private where(f: CommentFilter) { const accountIds = f.accountId ? [f.accountId] : f.accountIds; return { ...(f.noteId ? { noteId: f.noteId } : {}), ...(accountIds ? { note: { accountId: { in: accountIds } } } : {}), ...(f.from || f.to ? { publishedAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } } : {}) }; }
+  private where(f: CommentFilter) { const accountIds = f.accountId ? [f.accountId] : f.accountIds; return { ...(f.noteId ? { noteId: f.noteId } : {}), ...(accountIds ? { note: { accountId: { in: accountIds } } } : {}), ...(f.from || f.to ? { publishedAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } } : {}), ...(f.keyword ? { content: { contains: f.keyword, mode: 'insensitive' as const } } : {}), ...(f.newOnly ? { firstSeenAt: { gte: new Date(Date.now() - 86_400_000) } } : {}) }; }
   async ensureScope(f: CommentFilter) { const ids = f.accountId ? [f.accountId] : f.accountIds; if (ids && await prisma.account.count({ where: { id: { in: ids } } }) !== new Set(ids).size) throw new NotFoundException('managed account not found'); }
   async list(f: CommentFilter, cursor: string | undefined, limit: number) { await this.ensureScope(f); return page(await prisma.comment.findMany({ where: { ...this.where(f), ...(cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: limit + 1 }), limit); }
   async export(f: CommentFilter) {
@@ -44,7 +44,7 @@ export class CommentsService {
       await rm(directory, { recursive: true, force: true });
       const accountIds = f.accountId ? [f.accountId] : f.accountIds ?? (await prisma.note.findMany({ where: { comments: { some: this.where(f) } }, distinct: ['accountId'], select: { accountId: true } })).map((row) => row.accountId);
       if (!accountIds.length) throw new BadRequestException('export scope has no managed accounts');
-      const jobs = await prisma.$transaction(accountIds.map((accountId) => prisma.syncJob.create({ data: { accountId, currentStage: 'export_comments', payload: { accountIds, filter: { accountId, noteId: f.noteId ?? null, from: f.from?.toISOString() ?? null, to: f.to?.toISOString() ?? null }, requestedScope: { accountId: f.accountId ?? null, accountIds, noteId: f.noteId ?? null, from: f.from?.toISOString() ?? null, to: f.to?.toISOString() ?? null }, maxRows: this.limits.maxRows, maxBytes: this.limits.maxBytes } } })));
+      const jobs = await prisma.$transaction(accountIds.map((accountId) => prisma.syncJob.create({ data: { accountId, currentStage: 'export_comments', payload: { accountIds, filter: { accountId, noteId: f.noteId ?? null, from: f.from?.toISOString() ?? null, to: f.to?.toISOString() ?? null, keyword: f.keyword ?? null, newOnly: f.newOnly ?? false }, requestedScope: { accountId: f.accountId ?? null, accountIds, noteId: f.noteId ?? null, from: f.from?.toISOString() ?? null, to: f.to?.toISOString() ?? null, keyword: f.keyword ?? null, newOnly: f.newOnly ?? false }, maxRows: this.limits.maxRows, maxBytes: this.limits.maxBytes } } })));
       return { background: true as const, jobId: jobs[0].id, jobIds: jobs.map((job) => job.id) };
     }
     const stream = createReadStream(filePath); const cleanup = () => { void rm(directory, { recursive: true, force: true }); }; stream.once('close', cleanup); stream.once('error', cleanup);

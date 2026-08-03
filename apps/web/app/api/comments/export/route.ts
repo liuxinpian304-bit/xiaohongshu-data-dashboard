@@ -1,0 +1,3 @@
+import { authenticatedGet } from '../../../../lib/bff';
+const allowed=new Set(['accountId','noteId','from','to','keyword','newOnly']);
+export async function GET(request:Request){const input=new URL(request.url).searchParams;const output=new URLSearchParams();for(const[key,value]of input){if(!allowed.has(key))return Response.json({error:'invalid filter'},{status:400});output.append(key,value)}const upstream=await authenticatedGet(`/comments/export.csv?${output}`);return new Response(upstream.body,{status:upstream.status,headers:{'content-type':upstream.headers.get('content-type')??'application/json','content-disposition':upstream.headers.get('content-disposition')??''}})}

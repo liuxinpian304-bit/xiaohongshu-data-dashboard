@@ -1,0 +1,1 @@
+export default function Loading(){return <div className="workflow-page" aria-busy="true" aria-label="正在加载"><div className="loading-title"/><div className="loading-rail"/><div className="loading-grid"><div/><div/></div></div>}

@@ -1,0 +1,1 @@
+import { forwardMutation } from '../../../../lib/bff'; export async function POST(request: Request) { return forwardMutation(request, '/accounts/authorize'); }

@@ -30,3 +30,22 @@
 - The comments API supports account/note/date server filters. Keyword and “new” filters are therefore explicitly labeled current-page filters.
 - The jobs API exposes create and cancel but no retry endpoint. The UI does not invent a retry endpoint; controls requiring a CSRF-preserving mutation bridge remain non-destructive until that bridge is supplied.
 - No JSON field-level mapping/import script was implemented; it awaits the first sample as required.
+
+## Review round 1
+
+- Login now keeps the upstream CSRF token in a production-secure, Strict, HttpOnly `web_csrf` cookie. The browser never receives the token or `API_BASE_URL`.
+- Fixed allowlist BFF routes validate Origin and Fetch Metadata and forward session plus CSRF only server-side. Logout clears both cookies.
+- Jobs now use real create/cancel API operations; retry creates a new job for the failed job's account and every operation exposes pending/success/error status.
+- Account authorize/reauthorize/deactivate/delete operations are live through the guarded BFF. Mock authorization has its own real form; existing mock credentials can be replaced; deletion requires confirmation and explicit `retainData`. Self-import explains that JSON import creates the account without OAuth, while official authorization remains visibly unavailable but reserved.
+- Added exact `GET /notes/:id`; latest non-superseded metric snapshots include availability, value, source, and observed time. The detail UI no longer searches a paginated list.
+- Comment keyword and recent-new filters now run in the API and share one Prisma scope across list, CSV, and background export payloads.
+- Comment export now streams through same-origin BFF, preserves CSV headers, and turns HTTP 202 into a visible background-job status/link.
+- Added a shared dashboard-segment loading screen and keyboard-complete demo dialog behavior (Escape, focus trap, focus restoration, backdrop close).
+
+### Round 1 evidence
+
+- RED: missing BFF module and missing HttpOnly CSRF cookie helper; GREEN: boundary tests pass.
+- RED: demo dialog did not close on Escape/restore focus; GREEN: interaction test passes.
+- Web: 11 files, 25 tests passed; typecheck and production build passed.
+- API: 11 files, 64 tests passed; typecheck and production build passed.
+- Browser: desktop invalid-login mutation produced the actionable alert with no console errors; clean 390x844 reload rendered without clipping, overlays, warnings, or errors.

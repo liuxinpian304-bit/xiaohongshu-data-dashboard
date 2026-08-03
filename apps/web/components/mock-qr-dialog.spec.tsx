@@ -1,0 +1,3 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest'; import React from 'react'; import {fireEvent,render,screen}from'@testing-library/react';import{describe,it,expect}from'vitest';import{MockQrDialog}from'./mock-qr-dialog';
+describe('MockQrDialog',()=>{it('closes with Escape and restores focus',()=>{render(<MockQrDialog/>);const trigger=screen.getByRole('button',{name:'演示授权'});trigger.focus();fireEvent.click(trigger);expect(screen.getByRole('dialog')).toBeInTheDocument();fireEvent.keyDown(screen.getByRole('dialog'),{key:'Escape'});expect(screen.queryByRole('dialog')).not.toBeInTheDocument();expect(trigger).toHaveFocus();});});

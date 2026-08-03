@@ -20,6 +20,8 @@ export class CommentQueryDto extends AccountQueryDto {
   @IsOptional() @IsUUID() @ApiPropertyOptional({ type: String, format: 'uuid' }) noteId?: string;
   @IsOptional() @IsISO8601({ strict: true, strictSeparator: true }) @ApiPropertyOptional({ type: String, format: 'date-time' }) from?: string;
   @IsOptional() @IsISO8601({ strict: true, strictSeparator: true }) @ApiPropertyOptional({ type: String, format: 'date-time' }) to?: string;
+  @IsOptional() @IsString() @MaxLength(200) @ApiPropertyOptional({ type: String }) keyword?: string;
+  @IsOptional() @IsIn(['true']) @ApiPropertyOptional({ type: String, enum: ['true'] }) newOnly?: string;
 }
 export class DashboardQueryDto { @IsOptional() @IsIn(['daily', 'weekly', 'monthly']) @ApiPropertyOptional({ type: String, enum: ['daily', 'weekly', 'monthly'] }) period?: string; @IsOptional() @IsUUID() @ApiPropertyOptional({ type: String, format: 'uuid' }) accountId?: string; @IsOptional() @IsIn(['official']) @ApiPropertyOptional({ type: String, enum: ['official'], default: 'official' }) source?: string; }
 export class PushKeysDto { @IsString() @MinLength(1) @MaxLength(4096) @ApiProperty({ type: String }) p256dh!: string; @IsString() @MinLength(1) @MaxLength(4096) @ApiProperty({ type: String }) auth!: string; }

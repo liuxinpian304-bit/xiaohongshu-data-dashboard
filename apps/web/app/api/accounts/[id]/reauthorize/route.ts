@@ -1,0 +1,1 @@
+import { forwardMutation } from '../../../../../lib/bff'; export async function POST(request:Request,context:{params:Promise<{id:string}>}){const{id}=await context.params;return /^[0-9a-f-]{36}$/i.test(id)?forwardMutation(request,`/accounts/${id}/reauthorize`):new Response(null,{status:400});}

@@ -14,6 +14,9 @@ export type DashboardCard = {
 export type DashboardTrendPoint = { date: string; metrics: DashboardCard[] };
 export type DashboardRankedNote = { id: string; accountId: string; title: string; publishedAt: string; metricKey: string; metricLabel: string; value: string };
 export type Account = { id: string; connectorType: string; platformId: string; displayName: string | null; capabilities: Array<{ enabled: boolean }> };
+export type SyncJob = { id: string; accountId: string; status: 'pending' | 'running' | 'succeeded' | 'failed'; currentStage: string; error: string | null; createdAt: string; startedAt: string | null; completedAt: string | null };
+export type Note = { id: string; accountId: string; connectorType: string; platformId: string; title: string; publishedAt: string; lastSeenAt: string };
+export type Comment = { id: string; noteId: string | null; connectorType: string; platformId: string; parentPlatformId: string | null; content: string; publishedAt: string; likeCount: number; source: string };
 
 export type DashboardResponse = {
   period: DashboardPeriod;
@@ -72,6 +75,12 @@ async function apiGet<T>(path: string): Promise<ApiResult<T>> {
     headers: cookieHeader ? { cookie: cookieHeader } : undefined,
   });
 }
+
+export function getAccounts(cursor?: string) { const q = new URLSearchParams({ limit: '50' }); if (cursor) q.set('cursor', cursor); return apiGet<CursorPage<Account>>(`/accounts?${q}`); }
+export function getJobs(cursor?: string) { const q = new URLSearchParams({ limit: '50' }); if (cursor) q.set('cursor', cursor); return apiGet<CursorPage<SyncJob>>(`/jobs?${q}`); }
+export function getNotes(accountId?: string, cursor?: string) { const q = new URLSearchParams({ limit: '50' }); if (accountId) q.set('accountId', accountId); if (cursor) q.set('cursor', cursor); return apiGet<CursorPage<Note>>(`/notes?${q}`); }
+export function getComments(query: Record<string, string | undefined>) { const q = new URLSearchParams({ limit: '50' }); for (const [key, value] of Object.entries(query)) if (value) q.set(key, value); return apiGet<CursorPage<Comment>>(`/comments?${q}`); }
+export const commentsExportUrl = (query: Record<string, string | undefined>) => { const q = new URLSearchParams(); for (const [key, value] of Object.entries(query)) if (value) q.set(key, value); return `${apiBaseUrl}/comments/export.csv?${q}`; };
 
 export function getDashboard(period: DashboardPeriod, accountId?: string) {
   const query = new URLSearchParams({ period, source: 'official' });

@@ -1,0 +1,3 @@
+'use client';
+import { useState } from 'react';
+export function MockQrDialog() { const [open, setOpen] = useState(false); return <><button className="primary-button" type="button" onClick={() => setOpen(true)}>演示授权</button>{open ? <div className="modal-layer" role="presentation"><section aria-modal="true" role="dialog" aria-labelledby="demo-auth-title" className="mock-dialog"><h2 id="demo-auth-title">演示授权</h2><div className="mock-qr" aria-hidden="true">DEMO</div><strong>演示授权，不会连接小红书</strong><p>该入口只用于展示完整操作流程，不会读取或修改任何真实账号。</p><button type="button" onClick={() => setOpen(false)}>我知道了</button></section></div> : null}</>; }

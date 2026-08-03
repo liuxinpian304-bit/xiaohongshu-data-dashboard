@@ -93,11 +93,14 @@ describe('dashboard API', () => {
     const login = await agent.post('/auth/login').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', pre.body.csrfToken).send({ password: 'dashboard password' }).expect(201);
     const mutation = (requestBuilder: request.Test) => requestBuilder.set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', login.body.csrfToken);
     const authorized = await mutation(agent.post('/accounts/authorize')).send({ connectorType: `mutation-${crypto.randomUUID()}`, platformId: crypto.randomUUID(), displayName: 'Mutation', secret: 'credential-one', kind: 'oauth' }).expect(201);
+    const syncJob = await mutation(agent.post('/jobs')).send({ accountId: authorized.body.id }).expect(202);
+    expect((await prisma.syncJob.findUniqueOrThrow({ where: { id: syncJob.body.id } })).externalJobId).toBe(syncJob.body.id);
     const reauthorized = await mutation(agent.post(`/accounts/${authorized.body.id}/reauthorize`)).send({ secret: 'credential-two', kind: 'oauth' }).expect(201);
     const pushed = await mutation(agent.post('/notifications/push-subscriptions')).send({ accountId: authorized.body.id, endpoint: 'https://push.example.test/sub', keys: { p256dh: 'public-key', auth: 'auth-secret' } }).expect(201);
     const spec = (await request(app.getHttpServer()).get('/docs/openapi.json')).body;
     for (const body of [authorized.body, reauthorized.body]) { expect(body.capabilities).toEqual([]); expect(Object.keys(body).sort()).toEqual(Object.keys(spec.components.schemas.AccountDto.properties).sort()); }
     expect(pushed.body).toEqual(expect.objectContaining({ accountId: authorized.body.id, endpoint: 'https://push.example.test/sub' }));
+    expect(syncJob.body).toEqual(expect.objectContaining({ accountId: authorized.body.id, status: 'pending' }));
     expect(pushed.body).not.toHaveProperty('p256dh'); expect(pushed.body).not.toHaveProperty('auth');
     expect(Object.keys(pushed.body).sort()).toEqual(Object.keys(spec.components.schemas.PushSubscriptionResponseDto.properties).sort());
   });

@@ -16,11 +16,11 @@ export class SyncRepository {
     return (await this.db.syncJob.count({ where: { accountId, status: 'succeeded', externalJobId: { not: jobId } } })) > 0;
   }
 
-  async startJob(externalJobId: string, accountId: string) {
+  async startJob(externalJobId: string, accountId: string, payload?: Prisma.InputJsonObject) {
     return this.db.syncJob.upsert({
       where: { externalJobId },
-      create: { externalJobId, accountId, status: 'running', startedAt: new Date() },
-      update: { status: 'running', verificationStatus: 'verified', error: null, completedAt: null },
+      create: { externalJobId, accountId, status: 'running', startedAt: new Date(), payload },
+      update: { status: 'running', verificationStatus: 'verified', error: null, completedAt: null, ...(payload ? { payload } : {}) },
       include: { account: true },
     });
   }
@@ -68,7 +68,7 @@ export class SyncRepository {
       const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
       const capturedDates = backfillBusinessDates(metrics);
       const observationDigest = createHash('sha256').update(JSON.stringify(metrics.map(({ capturedAt, views, likes, comments, source, metricMetadata }) => ({ capturedAt, views, likes, comments, source, metricMetadata })))).digest('hex');
-      const backfillId = createHash('sha256').update(`${jobId}\0${note.id}\0${capturedDates.join(',')}\0${observationDigest}`).digest('hex').slice(0, 32);
+      const backfillId = createHash('sha256').update(`${note.id}\0${capturedDates.join(',')}\0${observationDigest}`).digest('hex').slice(0, 32);
       const source = metrics[0]?.source ?? (connectorType === 'mock' ? 'mock' : 'official');
       const expectedSource = connectorType === 'mock' ? 'mock' : 'official';
       if (source !== expectedSource || metrics.some((metric) => metric.source !== expectedSource)) throw new Error('metric source does not match connector source');
@@ -76,6 +76,7 @@ export class SyncRepository {
       const definitions = [
         ['views', '浏览量', semantics.views], ['likes', '点赞量', semantics.likes], ['comments', '评论量', semantics.comments],
       ] as const;
+      let changed = false;
       for (const [key, displayName, aggregation] of definitions) {
         const aggregationVersion = metrics[0]?.metricMetadata?.[key]?.aggregationVersion ?? `${source}-v1`;
         const effectiveFrom = new Date(Math.min(...metrics.map(({ capturedAt }) => new Date(capturedAt).getTime())));
@@ -105,6 +106,7 @@ export class SyncRepository {
             && existing.windowStart?.getTime() === observation.windowStart?.getTime() && existing.windowEnd?.getTime() === observation.windowEnd?.getTime()
             && existing.authoritativePeriod === observation.authoritativePeriod;
           if (exact) continue;
+          changed = true;
           if (existing) {
             const correctedAt = new Date();
             await tx.$executeRaw`SELECT supersede_metric_snapshot(${existing.id}::uuid, ${correctedAt}::timestamptz)`;
@@ -115,14 +117,12 @@ export class SyncRepository {
         }
       }
       await this.upsertCheckpoint(tx, jobId, 'metrics', notePlatformId, null);
-      await tx.backfillEvent.upsert({
-        where: { id: backfillId },
-        create: { id: backfillId, accountId: note.accountId, noteId: note.id, capturedDates },
-        update: {},
-      });
-      return { backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason: 'metric_snapshot_saved' };
+      if (!changed) return null;
+      const reason = expectedSource === 'official' ? 'official_observation_committed' : 'metric_snapshot_saved';
+      await tx.backfillEvent.upsert({ where: { id: backfillId }, create: { id: backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason }, update: {} });
+      return { backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason };
     });
-    try { await this.onMetricSnapshotsCommitted?.(event); } catch { /* pending outbox is retried by the worker scanner */ }
+    if (event) try { await this.onMetricSnapshotsCommitted?.(event); } catch { /* pending outbox is retried by the worker scanner */ }
   }
 
   async saveCommentsPage(jobId: string, accountId: string, connectorType: string, notePlatformId: string, comments: Comment[], nextCursor: string | null, unverifiable = false) {

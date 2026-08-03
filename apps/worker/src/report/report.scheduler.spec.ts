@@ -97,6 +97,18 @@ describe('reportJobsForTick', () => {
     expect(new Set(jobs.map((job) => job.id)).size).toBe(3);
   });
 
+  it('finds the latest daily natural-week and monthly report scopes containing a committed business day', async () => {
+    const reports = [
+      { id: 'daily-old', accountId: 'account-1', reportType: 'daily', periodStart: new Date('2026-07-31T16:00:00Z'), periodEnd: new Date('2026-08-01T15:59:59.999Z'), version: 1, status: 'complete', missingDates: [] },
+      { id: 'daily-latest', accountId: 'account-1', reportType: 'daily', periodStart: new Date('2026-07-31T16:00:00Z'), periodEnd: new Date('2026-08-01T15:59:59.999Z'), version: 2, status: 'complete', missingDates: [] },
+      { id: 'weekly', accountId: 'account-1', reportType: 'weekly', periodStart: new Date('2026-07-26T16:00:00Z'), periodEnd: new Date('2026-08-02T15:59:59.999Z'), version: 1, status: 'complete', missingDates: [] },
+      { id: 'monthly', accountId: 'account-1', reportType: 'monthly', periodStart: new Date('2026-07-31T16:00:00Z'), periodEnd: new Date('2026-08-31T15:59:59.999Z'), version: 1, status: 'awaiting_data', missingDates: ['2026-08-02'] },
+    ];
+    const store = new PrismaAffectedReportStore({ report: { findMany: async () => reports } } as never);
+    const affected = await store.findAffectedReports({ backfillId: 'event', accountId: 'account-1', noteId: 'note', capturedDates: ['2026-08-01'], reason: 'changed_official_observation' });
+    expect(affected.map(({ id }) => id)).toEqual(['daily-latest', 'weekly', 'monthly']);
+  });
+
   it('turns queue failures into a structured scheduler error instead of an unhandled rejection', async () => {
     const errors: unknown[] = [];
     const queue = { add: async () => { throw new Error('redis unavailable'); } };

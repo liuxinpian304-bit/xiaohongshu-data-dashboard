@@ -279,4 +279,20 @@ describe('ReportService', () => {
     };
     expect((await new ReportService(store).generateReport(type, now)).status).toBe('complete');
   });
+
+  it('keeps a 31-day final monthly report awaiting data with the exact missing day and metric field', async () => {
+    const dates = Array.from({ length: 31 }, (_, day) => `2026-07-${String(day + 1).padStart(2, '0')}`).filter((date) => date !== '2026-07-17');
+    const store = storeWithSnapshots(dates.map((date) => `${date}T12:00:00+08:00`));
+    const report = await new ReportService(store).generateReport('monthly', new Date('2026-08-01T00:05:00+08:00'));
+    expect(report.status).toBe('awaiting_data');
+    expect(report.missingDates).toEqual(['2026-07-17']);
+    expect(report.missingFields).toContainEqual({ noteId: 'note-1', metricDefinitionId: 'views', date: '2026-07-17' });
+  });
+
+  it('completes a cross-year final monthly report only when every December business day is present', async () => {
+    const dates = Array.from({ length: 31 }, (_, day) => `2026-12-${String(day + 1).padStart(2, '0')}T12:00:00+08:00`);
+    const report = await new ReportService(storeWithSnapshots(dates)).generateReport('monthly', new Date('2027-01-01T00:05:00+08:00'));
+    expect(report.status).toBe('complete');
+    expect(report.missingDates).toEqual([]);
+  });
 });

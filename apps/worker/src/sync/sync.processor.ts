@@ -1,13 +1,13 @@
 import { UnrecoverableError, Worker, type Job } from 'bullmq';
 
 import { SYNC_ACCOUNT_QUEUE, redisConnection } from '../queues';
-import type { SyncResult, SyncService } from './sync.service';
+import type { RollingSyncContext, SyncResult, SyncService } from './sync.service';
 
-export interface SyncAccountJobData { accountId: string }
+export interface SyncAccountJobData { accountId: string; businessDate?: string; windowStart?: string; windowEndExclusive?: string; mode?: RollingSyncContext['mode']; source?: 'official' }
 
 export async function processSyncAccountJob(service: SyncService, job: Job<SyncAccountJobData>): Promise<SyncResult> {
   try {
-    return await service.runAccountSync(job.id ?? job.name, job.data.accountId);
+    return await service.runAccountSync(job.id ?? job.name, job.data.accountId, rollingContext(job.data));
   } catch (error) {
     const status = httpStatus(error);
     if (status === 401 || status === 403) {
@@ -15,6 +15,12 @@ export async function processSyncAccountJob(service: SyncService, job: Job<SyncA
     }
     throw error;
   }
+}
+
+function rollingContext(data: SyncAccountJobData): RollingSyncContext | undefined {
+  if (!data.businessDate && !data.windowStart && !data.windowEndExclusive && !data.mode && !data.source) return undefined;
+  if (!data.businessDate || !data.windowStart || !data.windowEndExclusive || !data.mode || data.source !== 'official') throw new Error('rolling sync payload is incomplete or non-official');
+  return { businessDate: data.businessDate, windowStart: data.windowStart, windowEndExclusive: data.windowEndExclusive, mode: data.mode, source: data.source };
 }
 
 export function createSyncWorker(service: SyncService) {

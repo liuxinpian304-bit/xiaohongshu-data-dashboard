@@ -4,7 +4,7 @@ import { PushEndpointPolicy } from '@xhs/domain';
 
 export const NOTIFICATION_EVENT_TYPES = [
   'sync_completed', 'sync_failed', 'authorization_expired', 'new_comment',
-  'comment_sync_incomplete', 'report_generated', 'report_rebuilt',
+  'comment_sync_incomplete', 'report_generated', 'report_rebuilt', 'report_awaiting_data',
 ] as const;
 
 export type NotificationEventType = typeof NOTIFICATION_EVENT_TYPES[number];
@@ -128,6 +128,7 @@ function notificationContent(event: DomainEvent): Pick<NotificationRecord, 'titl
     case 'comment_sync_incomplete': return { title: '评论同步不完整', body: '部分评论尚未同步完成', link: `/notes/${value(event.data, 'noteId')}/comments` };
     case 'report_generated': return { title: '报告已生成', body: '新的数据报告已生成', link: `/reports/${value(event.data, 'reportId')}` };
     case 'report_rebuilt': return { title: '报告已更新', body: '补数后的报告已重新生成', link: `/reports/${value(event.data, 'reportId')}` };
+    case 'report_awaiting_data': return { title: '报告等待数据', body: '月度终检发现必需数据不完整', link: `/reports/${value(event.data, 'reportId')}` };
   }
 }
 

@@ -4,6 +4,7 @@ import type { ReportType } from '@xhs/domain';
 import { redisConnection } from '../queues';
 import type { ReportResult, ReportService } from './report.service';
 import type { NotificationEventPublisher } from '../notification/notification.publisher';
+import { reportOutcomeEvents } from '../notifications/event-producers';
 
 export const REPORT_QUEUE = 'reports';
 export type ReportJobName = 'generate-daily-report' | 'generate-weekly-report' | 'generate-monthly-report' | 'rebuild-report';
@@ -26,9 +27,8 @@ export async function processReportJob(service: ReportService, job: Job<ReportJo
     previousReportId: job.data.previousReportId,
     rebuildReason: job.data.rebuildReason,
   });
-  const eventType = job.name === 'rebuild-report' ? 'report_rebuilt' : 'report_generated';
-  await Promise.all(result.reports.map(async (report) => {
-    try { await notifications?.publish({ id: `report:${eventType}:${report.id}:${report.version}`, type: eventType, accountId: report.accountId, data: { reportId: report.id } }); } catch { /* notification delivery cannot fail report generation */ }
+  await Promise.all(reportOutcomeEvents(result, job.name === 'rebuild-report').map(async (event) => {
+    try { await notifications?.publish(event); } catch { /* notification delivery cannot fail report generation */ }
   }));
   return result;
 }

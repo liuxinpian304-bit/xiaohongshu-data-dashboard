@@ -9,13 +9,21 @@ export interface SyncResult {
   status: 'complete' | 'unverifiable';
 }
 
+export interface RollingSyncContext {
+  businessDate: string;
+  windowStart: string;
+  windowEndExclusive: string;
+  mode: 'month_to_date' | 'previous_month_final';
+  source: 'official';
+}
+
 const STAGES: SyncStage[] = ['authorize', 'notes', 'metrics', 'comments', 'replies', 'complete'];
 
 export class SyncService {
   constructor(private readonly connector: XhsConnector, private readonly repository: SyncRepository, private readonly notifications?: NotificationEventPublisher) {}
 
-  async runAccountSync(jobId: string, accountId: string): Promise<SyncResult> {
-    const job = await this.repository.startJob(jobId, accountId);
+  async runAccountSync(jobId: string, accountId: string, context?: RollingSyncContext): Promise<SyncResult> {
+    const job = await this.repository.startJob(jobId, accountId, context ? { ...context } : undefined);
     try {
       for (const stage of STAGES.slice(STAGES.indexOf(job.currentStage as SyncStage))) {
         if (stage === 'authorize') await this.authorize(jobId, accountId);

@@ -83,16 +83,16 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
   async findAffectedReports(event: BackfillCommittedEvent) {
     const reports = await this.db.report.findMany({
       where: { accountId: event.accountId },
-      select: { id: true, accountId: true, reportType: true, periodStart: true, periodEnd: true, status: true, missingDates: true },
+      select: { id: true, accountId: true, reportType: true, periodStart: true, periodEnd: true, version: true, status: true, missingDates: true },
       orderBy: { version: 'desc' },
     });
     const seenScopes = new Set<string>();
     const affected: AffectedReport[] = [];
-    for (const report of reports) {
+    for (const report of [...reports].sort((a, b) => b.version - a.version)) {
       const key = `${report.reportType}\0${report.periodStart.toISOString()}\0${report.periodEnd.toISOString()}`;
       if (seenScopes.has(key)) continue;
       seenScopes.add(key);
-      if (report.status === 'awaiting_data' && report.missingDates.some((date) => event.capturedDates.includes(date))) {
+      if (event.capturedDates.some((date) => reportContainsBusinessDate(report.periodStart, report.periodEnd, date))) {
         affected.push({ ...report, type: report.reportType as ReportType });
       }
     }
@@ -120,6 +120,12 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
     if (result.count === 0) throw new OwnershipLostError(backfillId);
     if (result.count !== 1) throw new DispatchStateConsistencyError(backfillId, result.count);
   }
+}
+
+function reportContainsBusinessDate(periodStart: Date, periodEnd: Date, businessDate: string) {
+  const start = new Date(`${businessDate}T00:00:00+08:00`);
+  const end = new Date(`${businessDate}T23:59:59.999+08:00`);
+  return periodStart <= end && periodEnd >= start;
 }
 
 export class ReportRebuildDispatcher {

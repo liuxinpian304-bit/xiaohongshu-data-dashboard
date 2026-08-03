@@ -119,6 +119,36 @@ describe('SyncService', () => {
     expect(await prisma.backfillEvent.count({ where: { id: { in: observed } } })).toBe(observed.length);
   });
 
+  it('does not append revisions or another rebuild outbox event for the same official observation', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'idempotent-metrics-account' } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'idempotent-metrics-note', title: 'Idempotent note', publishedAt: new Date('2026-08-01') } });
+    const metrics = (await new MockXhsConnector().getNoteMetrics({ noteId: 'note-1' })).map((metric) => ({ ...metric, source: 'official' as const }));
+    const repository = new SyncRepository(prisma);
+    await repository.startJob('same-observation-1', account.id);
+    await repository.saveMetrics('same-observation-1', 'official', note.platformId, metrics);
+    await repository.startJob('same-observation-2', account.id);
+    await repository.saveMetrics('same-observation-2', 'official', note.platformId, metrics);
+
+    expect(await prisma.metricSnapshot.count({ where: { noteId: note.id } })).toBe(metrics.length * 3);
+    expect(await prisma.metricSnapshot.count({ where: { noteId: note.id, revision: { gt: 1 } } })).toBe(0);
+    expect(await prisma.backfillEvent.count({ where: { noteId: note.id } })).toBe(1);
+  });
+
+  it('appends immutable revisions and one new rebuild outbox event when an official value changes', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'corrected-metrics-account' } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'corrected-metrics-note', title: 'Corrected note', publishedAt: new Date('2026-08-01') } });
+    const metrics = (await new MockXhsConnector().getNoteMetrics({ noteId: 'note-1' })).map((metric) => ({ ...metric, source: 'official' as const }));
+    const repository = new SyncRepository(prisma);
+    await repository.startJob('changed-observation-1', account.id);
+    await repository.saveMetrics('changed-observation-1', 'official', note.platformId, metrics);
+    await repository.startJob('changed-observation-2', account.id);
+    await repository.saveMetrics('changed-observation-2', 'official', note.platformId, metrics.map((metric, index) => index === 0 ? { ...metric, views: metric.views + 1 } : metric));
+
+    expect(await prisma.metricSnapshot.count({ where: { noteId: note.id, revision: 2, supersedesId: { not: null } } })).toBe(1);
+    expect(await prisma.metricSnapshot.count({ where: { noteId: note.id, supersededAt: { not: null } } })).toBe(1);
+    expect(await prisma.backfillEvent.count({ where: { noteId: note.id } })).toBe(2);
+  });
+
   it('keeps metric sync successful when dispatch fails and recovers the persisted outbox through real Redis', async () => {
     const queue = createReportQueue(); await queue.obliterate({ force: true });
     const store = new PrismaAffectedReportStore(prisma);

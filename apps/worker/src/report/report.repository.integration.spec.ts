@@ -91,14 +91,16 @@ describe('PrismaReportStore version allocation', () => {
     await firstDb.report.deleteMany({ where: { accountId: account.id } }); await firstDb.account.delete({ where: { id: account.id } });
   });
 
-  it('ignores a stale awaiting version when the latest report in its scope is complete', async () => {
+  it('rebuilds the latest complete version instead of a stale awaiting version after corrected evidence', async () => {
     const account = await firstDb.account.create({ data: { connectorType: 'integration-report', platformId: crypto.randomUUID() } });
     const store = new PrismaReportStore(firstDb);
     const base = { accountId: account.id, type: 'daily' as const, periodStart: new Date('2026-08-01T00:00:00+08:00'), periodEnd: new Date('2026-08-01T23:59:59.999+08:00'), metrics: [] };
-    await store.createVersion({ ...base, status: 'awaiting_data', missingDates: ['2026-08-01'], missingFields: [] });
-    await store.createVersion({ ...base, status: 'complete', missingDates: [], missingFields: [] });
+    const first = await store.createVersion({ ...base, status: 'awaiting_data', missingDates: ['2026-08-01'], missingFields: [] });
+    const latest = await store.createVersion({ ...base, status: 'complete', missingDates: [], missingFields: [] });
     const affected = await new PrismaAffectedReportStore(firstDb).findAffectedReports({ backfillId: 'bf', accountId: account.id, noteId: crypto.randomUUID(), capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' });
-    expect(affected).toEqual([]);
+    expect(affected).toEqual([expect.objectContaining({ id: expect.any(String), type: 'daily' })]);
+    expect(affected[0]?.id).toBe(latest.id);
+    expect(affected[0]?.id).not.toBe(first.id);
     await firstDb.report.deleteMany({ where: { accountId: account.id } }); await firstDb.account.delete({ where: { id: account.id } });
   });
 });

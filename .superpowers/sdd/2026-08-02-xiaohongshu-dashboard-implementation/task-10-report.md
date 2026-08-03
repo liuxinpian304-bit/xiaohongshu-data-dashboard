@@ -49,3 +49,21 @@
 - Web: 11 files, 25 tests passed; typecheck and production build passed.
 - API: 11 files, 64 tests passed; typecheck and production build passed.
 - Browser: desktop invalid-login mutation produced the actionable alert with no console errors; clean 390x844 reload rendered without clipping, overlays, warnings, or errors.
+
+## Review round 2
+
+- Login validates Origin and Fetch Metadata before reading the body or contacting upstream. Login JSON is type/size/field bounded, the API pre-auth CSRF exchange remains intact, and only one well-formed `admin_session` value is accepted and rebuilt as a fixed-lifetime Strict HttpOnly cookie.
+- All mutation BFFs require JSON, reject declared or streamed bodies above 16 KiB, reject unknown fields, and validate route-specific UUID/string/boolean shapes.
+- Latest note metrics are ordered by captured evidence time, observed time, and revision, and snapshots outside their metric-definition effective interval are excluded.
+- Job cancellation is a transactional compare-and-set limited to pending/running; missing jobs return 404 and completed jobs return 409.
+- Account actions fail closed by source: mock supports credential lifecycle, self-import is JSON-import managed, and unconfigured official accounts are read-only.
+- Mutation clients share 401 redirect and 403 messaging behavior; job and mock account actions disable while pending and expose `aria-busy` status.
+- The mock dialog renders through a body portal and temporarily makes background siblings inert/aria-hidden, restoring prior attributes and trigger focus on close.
+
+### Round 2 evidence
+
+- RED confirmed for cross-site login, unsafe upstream cookies, unbounded/wrong-type JSON, and unknown fields; all boundary tests are now green.
+- Web: 11 files, 28 tests passed; typecheck and production build passed.
+- API: 11 files, 64 tests passed; typecheck and production build passed.
+- Browser: desktop login mutation error state and clean 390x844 page passed with meaningful DOM and no application console warnings/errors.
+- The planned local real-XHS QR collector remains outside Task 10; self-import stays read-only until that separate work begins.

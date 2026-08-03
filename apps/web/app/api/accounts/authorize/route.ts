@@ -1,1 +1,1 @@
-import { forwardMutation } from '../../../../lib/bff'; export async function POST(request: Request) { return forwardMutation(request, '/accounts/authorize'); }
+import { forwardMutation } from '../../../../lib/bff'; export async function POST(request: Request) { return forwardMutation(request, '/accounts/authorize','POST',['connectorType','platformId','displayName','secret','kind']); }

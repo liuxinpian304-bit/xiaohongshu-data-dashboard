@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { prisma } from '@xhs/database';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../common/audit.service';
@@ -23,6 +23,7 @@ export class AccountsService {
     return page(items, limit);
   }
   async authorize(input: { connectorType: string; platformId: string; displayName?: string; secret: string; kind: string }) {
+    if (['official', 'self_import'].includes(input.connectorType)) throw new ForbiddenException('connector authorization is not available');
     return prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ id: string; revocationState: string }>>`SELECT id, "revocationState" FROM "Account" WHERE "connectorType" = ${input.connectorType} AND "platformId" = ${input.platformId} FOR UPDATE`;
       if (locked[0] && !['none', 'completed'].includes(locked[0].revocationState)) throw new ConflictException('account revocation is not complete');
@@ -39,12 +40,13 @@ export class AccountsService {
     });
   }
   async deactivate(id: string) {
-    if (!(await prisma.account.count({ where: { id } }))) throw new NotFoundException('managed account not found');
+    const account = await prisma.account.findUnique({ where: { id }, select: { connectorType: true } }); if (!account) throw new NotFoundException('managed account not found'); if (['official', 'self_import'].includes(account.connectorType)) throw new ForbiddenException('connector management is not available');
     await prisma.connectorCapability.updateMany({ where: { accountId: id }, data: { enabled: false, checkedAt: new Date() } });
     await this.audit.record('account.deactivated', 'Account', id);
     return { id, active: false };
   }
   async reauthorize(id: string, secret: string, kind: string) {
+    const candidate = await prisma.account.findUnique({ where: { id }, select: { connectorType: true } }); if (!candidate) throw new NotFoundException('managed account not found'); if (['official', 'self_import'].includes(candidate.connectorType)) throw new ForbiddenException('connector authorization is not available');
     const credentialId = randomUUID();
     const encrypted = new CredentialCipher().encrypt(secret, id, credentialId);
     return prisma.$transaction(async (tx) => {
@@ -68,6 +70,7 @@ export class AccountsService {
     };
     const candidate = await prisma.account.findUnique({ where: { id }, select: { connectorType: true } });
     if (!candidate) { const completed = await tombstone(); if (completed) return completed; throw new NotFoundException('managed account not found'); }
+    if (['official', 'self_import'].includes(candidate.connectorType)) throw new ForbiddenException('connector management is not available');
     const connector = this.connectors.resolve(candidate.connectorType);
     const capabilities = connector ? await connector.getCapabilities() : undefined;
     const officialRevocationSupported = capabilities?.revokeAuthorization === true && typeof connector?.revokeAuthorization === 'function';

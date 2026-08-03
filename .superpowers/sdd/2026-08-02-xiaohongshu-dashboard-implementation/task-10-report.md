@@ -67,3 +67,15 @@
 - API: 11 files, 64 tests passed; typecheck and production build passed.
 - Browser: desktop login mutation error state and clean 390x844 page passed with meaningful DOM and no application console warnings/errors.
 - The planned local real-XHS QR collector remains outside Task 10; self-import stays read-only until that separate work begins.
+
+## Review round 3
+
+- Login accepts exactly one valid upstream `admin_session` plus the expected `pre_auth_csrf` deletion cookie. It handles combined fallback headers without splitting the comma inside `Expires`, and rejects duplicates, unknown cookies, or malformed security cookies.
+- The BFF session cookie now uses the authenticated API's strictly validated 1,800-second lifetime instead of an independent eight-hour value.
+- Account authority is enforced again inside the API service: direct calls using the production `official` or `self_import` authority values cannot authorize, reauthorize, deactivate, or delete. The collector will receive a separate endpoint later.
+- Mock authorize and reauthorize controls now guard duplicate submissions, disable inputs/buttons while pending, expose `aria-busy`, and surface shared 401/403/other mutation messages.
+
+### Round 3 evidence
+
+- Web: 11 files, 29 tests passed; typecheck and production build passed.
+- API: 11 files, 65 tests passed; typecheck and production build passed.

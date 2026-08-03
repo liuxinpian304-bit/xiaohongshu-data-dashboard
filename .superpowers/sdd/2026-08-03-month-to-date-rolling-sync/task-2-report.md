@@ -49,3 +49,10 @@
 - Round 2 RED 覆盖非白名单来源误重建、历史日晚采集被拒绝、重抓归属/修订错误、单 capability 账号通过和 scheduler 过宽。
 - Round 2 全量测试：domain 30、worker 116、API 64、database 7、connector 11、web 18，全部通过；全 workspace typecheck/build 通过。
 - 升级库和临时 fresh database 均顺序应用全部 22 个 Prisma 迁移并报告 schema up to date；fresh database 验证后已删除。
+
+## Review Round 3 修复
+
+- 修正尚未发布的 0020：整个迁移显式包在单个 PostgreSQL 事务内，仅在 `observedAt=capturedAt` 受控回填期间 drop `MetricSnapshot_immutable_revision` UPDATE trigger，紧接着以与 0013 完全相同的 function/row trigger 定义恢复。任何中间错误都由事务回滚 trigger 和数据变更，未放宽生产约束。
+- 新增真实 populated-upgrade 集成回归：临时库顺序 apply 0001..0019，插入 active 与 superseded revision，再 apply 0020。断言 `observedAt=capturedAt`，value/revision/source/aggregation/version/supersedes 完全不变，且非法 UPDATE 仍被 immutable trigger 拒绝、DELETE 仍被 append-only trigger 拒绝。
+- 回归使用独立临时数据库并在结束后删除，不伪造生产 migration checksum。本地 `xhs_dashboard` 的 reset 被 Prisma AI 安全门禁在执行前拒绝，未删除任何数据；`migrate status` 仍报告 22 migrations up to date。
+- Round 3 全量验证：database 3 文件/8 项、worker 13 文件/116 项、domain 30 项、API 64 项、connector 11 项、web 18 项全过；全 workspace typecheck/build、migration status 和 `git diff --check` 通过。

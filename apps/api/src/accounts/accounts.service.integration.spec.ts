@@ -1,11 +1,13 @@
 import { prisma } from '@xhs/database';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountsService } from './accounts.service';
 import { AuditService } from '../common/audit.service';
 const registry = (entries: Array<[string, unknown]>) => ({ resolve: (type: string) => new Map(entries).get(type) }) as never;
 
 describe('account credential lifecycle', () => {
-  beforeEach(async () => { await prisma.auditLog.deleteMany(); await prisma.account.deleteMany({ where: { notes: { none: {} }, reports: { none: {} } } }); process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64'); });
+  const removeFinalizeFailure = async () => { await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS fail_revocation_finalize ON "AuditLog"`); await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS fail_revocation_finalize_once()`); };
+  beforeEach(async () => { await removeFinalizeFailure(); await prisma.auditLog.deleteMany(); await prisma.account.deleteMany({ where: { notes: { none: {} }, reports: { none: {} } } }); process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64'); });
+  afterEach(removeFinalizeFailure);
   it('returns the complete public account projection from authorize and reauthorize', async () => {
     const service = new AccountsService(new AuditService());
     const created = await service.authorize({ connectorType: `projection-${crypto.randomUUID()}`, platformId: crypto.randomUUID(), displayName: 'Projection', secret: 'first', kind: 'oauth' });
@@ -13,13 +15,13 @@ describe('account credential lifecycle', () => {
     const updated = await service.reauthorize(created.id, 'second', 'oauth');
     expect(updated).toMatchObject({ id: created.id, capabilities: [] });
   });
-  it('revokes connector authorization before atomically deleting local credentials', async () => {
+  it('revokes connector authorization before finalizing local credential deletion', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } } } });
     const connector = { getCapabilities: vi.fn(async () => ({ revokeAuthorization: true })), revokeAuthorization: vi.fn(async () => ({ revoked: true as const })) };
     await new AccountsService(new AuditService(), registry([['mock', connector]])).remove(account.id, true);
     expect(connector.revokeAuthorization).toHaveBeenCalledWith({ accountId: account.id });
     expect(await prisma.credential.count({ where: { accountId: account.id } })).toBe(0);
-    expect(await prisma.auditLog.count({ where: { entityId: account.id, action: 'account.deleted' } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { entityId: account.id, action: 'account.revocation.completed' } })).toBe(1);
   });
   it('reports unsupported from the resolved connector capability without revoking', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'official-x', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } } } });
@@ -32,7 +34,8 @@ describe('account credential lifecycle', () => {
     const connector = { getCapabilities: vi.fn(async () => ({ revokeAuthorization: true })), revokeAuthorization: vi.fn(async () => { throw new Error('remote unavailable'); }) };
     await expect(new AccountsService(new AuditService(), registry([['official-y', connector]])).remove(account.id, true)).rejects.toThrow('remote unavailable');
     expect(await prisma.credential.count({ where: { accountId: account.id } })).toBe(1);
-    expect(await prisma.connectorCapability.findFirstOrThrow({ where: { accountId: account.id } })).toMatchObject({ enabled: true });
+    expect(await prisma.connectorCapability.findFirstOrThrow({ where: { accountId: account.id } })).toMatchObject({ enabled: false });
+    expect(await prisma.$queryRaw<Array<{ revocationState: string }>>`SELECT "revocationState" FROM "Account" WHERE id = ${account.id}::uuid`).toEqual([{ revocationState: 'failed' }]);
   });
   it('preserves the old credential when replacement encryption fails', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'old' } } } });
@@ -58,16 +61,58 @@ describe('account credential lifecycle', () => {
     expect(result.retainedBusinessData).toBe(true);
     expect(await prisma.metricSnapshot.count({ where: { noteId: note.id } })).toBe(1);
   });
-  it('serializes account deletion against a concurrent historical note insert', async () => {
+  it('allows concurrent historical note and report inserts during remote revocation and retains them', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'official-race', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } } } });
     let release!: () => void; let started!: () => void;
     const entered = new Promise<void>((resolve) => { started = resolve; }); const gate = new Promise<void>((resolve) => { release = resolve; });
     const connector = { getCapabilities: async () => ({ revokeAuthorization: true }), revokeAuthorization: async () => { started(); await gate; return { revoked: true as const }; } };
     const removal = new AccountsService(new AuditService(), registry([['official-race', connector]])).remove(account.id, false);
     await entered;
+    expect(await prisma.connectorCapability.count({ where: { accountId: account.id, enabled: true } })).toBe(0);
+    expect(await prisma.credential.count({ where: { accountId: account.id } })).toBe(1);
     const noteInsert = prisma.note.create({ data: { accountId: account.id, connectorType: account.connectorType, platformId: crypto.randomUUID(), title: 'Race', publishedAt: new Date() } });
+    const reportInsert = prisma.report.create({ data: { accountId: account.id, reportType: 'daily', periodStart: new Date('2026-08-01T00:00:00Z'), periodEnd: new Date('2026-08-01T23:59:59.999Z') } });
+    let noteInsertedDuringRemote = false; let reportInsertedDuringRemote = false;
+    void noteInsert.then(() => { noteInsertedDuringRemote = true; }); void reportInsert.then(() => { reportInsertedDuringRemote = true; });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const insertedBeforeRelease = noteInsertedDuringRemote && reportInsertedDuringRemote;
     release();
-    await expect(removal).resolves.toMatchObject({ retainedBusinessData: false });
-    await expect(noteInsert).rejects.toThrow();
+    await expect(noteInsert).resolves.toBeDefined();
+    await expect(reportInsert).resolves.toBeDefined();
+    await expect(removal).resolves.toMatchObject({ retainedBusinessData: true });
+    expect(insertedBeforeRelease).toBe(true);
+    expect(await prisma.account.count({ where: { id: account.id } })).toBe(1);
+  });
+  it('retries a failed revocation from persisted disabled state and finalizes once', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official-retry', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } }, capabilities: { create: { capability: 'noteMetrics', enabled: true } } } });
+    let attempts = 0;
+    const connector = { getCapabilities: async () => ({ revokeAuthorization: true }), revokeAuthorization: async () => { attempts += 1; if (attempts === 1) throw new Error('temporary'); return { revoked: true as const }; } };
+    const service = new AccountsService(new AuditService(), registry([['official-retry', connector]]));
+    await expect(service.remove(account.id, true)).rejects.toThrow('temporary');
+    await expect(service.remove(account.id, false)).resolves.toMatchObject({ retainedBusinessData: true, credentialsDeleted: true });
+    expect(attempts).toBe(2);
+    expect(await prisma.credential.count({ where: { accountId: account.id } })).toBe(0);
+    expect(await prisma.auditLog.count({ where: { entityId: account.id, action: 'account.revocation.completed' } })).toBe(1);
+  });
+  it('keeps pending state when remote succeeds but finalization fails, then idempotently retries', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official-finalize-retry', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } }, capabilities: { create: { capability: 'noteMetrics', enabled: true } } } });
+    await prisma.$executeRawUnsafe(`CREATE FUNCTION fail_revocation_finalize_once() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'account.revocation.completed' THEN RAISE EXCEPTION 'finalize unavailable'; END IF; RETURN NEW; END $$`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER fail_revocation_finalize BEFORE INSERT ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION fail_revocation_finalize_once()`);
+    const connector = { getCapabilities: async () => ({ revokeAuthorization: true }), revokeAuthorization: vi.fn(async () => ({ revoked: true as const })) };
+    const service = new AccountsService(new AuditService(), registry([['official-finalize-retry', connector]]));
+    await expect(service.remove(account.id, true)).rejects.toThrow('finalize unavailable');
+    expect(await prisma.credential.count({ where: { accountId: account.id } })).toBe(1);
+    expect(await prisma.connectorCapability.count({ where: { accountId: account.id, enabled: true } })).toBe(0);
+    expect(await prisma.$queryRaw<Array<{ revocationState: string }>>`SELECT "revocationState" FROM "Account" WHERE id = ${account.id}::uuid`).toEqual([{ revocationState: 'pending' }]);
+    await prisma.$executeRawUnsafe(`DROP TRIGGER fail_revocation_finalize ON "AuditLog"`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION fail_revocation_finalize_once()`);
+    await expect(service.remove(account.id, false)).resolves.toMatchObject({ retainedBusinessData: true });
+    expect(connector.revokeAuthorization).toHaveBeenCalledTimes(2);
+  });
+  it('returns the completed tombstone for a repeated delete after account removal', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'local-delete', platformId: crypto.randomUUID(), credentials: { create: { kind: 'oauth', secret: 'encrypted' } } } });
+    const service = new AccountsService(new AuditService());
+    await expect(service.remove(account.id, false)).resolves.toMatchObject({ retainedBusinessData: false });
+    await expect(service.remove(account.id, false)).resolves.toMatchObject({ id: account.id, retainedBusinessData: false, credentialsDeleted: true });
   });
 });

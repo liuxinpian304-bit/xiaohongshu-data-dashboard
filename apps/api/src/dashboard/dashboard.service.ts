@@ -107,11 +107,11 @@ function aggregate(key: string, aggregation: MetricAggregation, deltas: DeltaSna
   return { key, aggregation, value: null, availability: availabilityOf(deltas) };
 }
 
-function buildTrend(snapshots: DashboardSnapshot[], start: Date, end: Date, definitions: Array<{ id: string; key: string; aggregation: MetricAggregation; effectiveFrom?: Date; effectiveTo?: Date | null }>) {
+function buildTrend(snapshots: DashboardSnapshot[], start: Date, end: Date, segments: Array<{ id: string; key: string; aggregation: MetricAggregation; effectiveFrom?: Date; effectiveTo?: Date | null }>, definitions: Array<{ key: string; aggregation: MetricAggregation }>) {
   const dates = [...new Set(snapshots.filter(({ capturedAt }) => capturedAt >= start && capturedAt <= end).map(({ capturedAt }) => shanghaiDate(capturedAt)))].sort();
   return dates.map((date) => {
     const cutoff = new Date(`${date}T23:59:59.999+08:00`);
-    const deltas = seriesDeltas(snapshots, start, cutoff, definitions);
+    const deltas = seriesDeltas(snapshots, start, cutoff, segments);
     return { date, metrics: definitions.map(({ key, aggregation }) => aggregate(key, aggregation, deltas.filter((item) => item.metricKey === key))) };
   });
 }
@@ -138,15 +138,16 @@ export class DashboardService {
     const reportPeriod = getReportPeriod(period as ReportType, now);
     const data = await this.store.read(reportPeriod.start, reportPeriod.end, source, accountId, now);
     if (data.snapshots.some((item) => item.source !== source)) throw new BadRequestException('mixed dashboard sources are not allowed');
-    const definitionMap = new Map(data.definitions.map((item) => [item.key, item]));
-    for (const item of data.snapshots) definitionMap.set(item.metricKey, { id: item.metricDefinitionId, key: item.metricKey, displayName: definitionMap.get(item.metricKey)?.displayName ?? item.metricKey, aggregation: item.aggregation });
+    const definitionMap = new Map<string, { key: string; displayName: string; aggregation: MetricAggregation }>();
+    for (const item of data.definitions) if (!definitionMap.has(item.key)) definitionMap.set(item.key, { key: item.key, displayName: item.displayName, aggregation: item.aggregation });
+    for (const item of data.snapshots) if (!definitionMap.has(item.metricKey)) definitionMap.set(item.metricKey, { key: item.metricKey, displayName: item.metricKey, aggregation: item.aggregation });
     const definitions = [...definitionMap.values()].sort((a, b) => a.key.localeCompare(b.key));
     const deltas = seriesDeltas(data.snapshots, reportPeriod.start, reportPeriod.end, data.definitions);
     return {
       period, periodStart: reportPeriod.start.toISOString(), periodEnd: reportPeriod.end.toISOString(), source,
       lastSyncedAt: data.lastSyncedAt?.toISOString() ?? null,
       cards: definitions.map(({ key, aggregation }) => aggregate(key, aggregation, deltas.filter((item) => item.metricKey === key))),
-      trend: buildTrend(data.snapshots, reportPeriod.start, reportPeriod.end, definitions), rankedNotes: buildRanking(deltas, new Map(data.definitions.map(({ key, displayName }) => [key, displayName]))),
+      trend: buildTrend(data.snapshots, reportPeriod.start, reportPeriod.end, data.definitions, definitions), rankedNotes: buildRanking(deltas, new Map(data.definitions.map(({ key, displayName }) => [key, displayName]))),
     };
   }
 }

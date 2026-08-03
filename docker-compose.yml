@@ -3,8 +3,9 @@ services:
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: xhs_dashboard
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_USER: postgres
+      XHS_RUNTIME_PASSWORD: ${XHS_RUNTIME_PASSWORD:?set XHS_RUNTIME_PASSWORD}
     ports:
       - "${POSTGRES_PORT:-55432}:5432"
     healthcheck:
@@ -14,7 +15,7 @@ services:
       retries: 20
     volumes:
       - postgres_data:/var/lib/postgresql
-      - ./packages/database/docker/init-runtime-role.sql:/docker-entrypoint-initdb.d/10-runtime-role.sql:ro
+      - ./packages/database/docker/init-runtime-role.sh:/docker-entrypoint-initdb.d/10-runtime-role.sh:ro
 
   redis:
     image: redis:8-alpine

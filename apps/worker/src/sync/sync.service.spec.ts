@@ -348,6 +348,19 @@ describe('SyncService', () => {
     await expect(repository.saveMetrics('interval-job', 'official', 'interval-note', [{ noteId: 'interval-note', capturedAt: '2025-06-01T13:00:00Z', views: 1, likes: 1, comments: 1, source: 'official', metricMetadata: { views: halfWindow, likes: halfWindow, comments: halfWindow } }])).rejects.toThrow('both start and end');
   });
 
+  it('rejects a batch whose later observation names a different definition version', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'mixed-version-account' } });
+    await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'mixed-version-note', title: 'Mixed version', publishedAt: new Date() } });
+    await repository.startJob('mixed-version-job', account.id);
+    const metadata = (aggregationVersion: string) => ({ aggregation: 'cumulative_delta' as const, aggregationVersion });
+    const metric = (capturedAt: string, aggregationVersion: string) => ({ noteId: 'mixed-version-note', capturedAt, views: 1, likes: 1, comments: 1, source: 'official' as const, metricMetadata: { views: metadata(aggregationVersion), likes: metadata(aggregationVersion), comments: metadata(aggregationVersion) } });
+    await expect(repository.saveMetrics('mixed-version-job', 'official', 'mixed-version-note', [
+      metric('2026-08-01T12:00:00Z', 'official-v1'),
+      metric('2026-08-01T13:00:00Z', 'official-v2'),
+    ])).rejects.toThrow('version does not match definition');
+    expect(await prisma.metricSnapshot.count({ where: { note: { platformId: 'mixed-version-note' } } })).toBe(0);
+  });
+
   it('clears unverifiable verification state after a successful retry', async () => {
     const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'account-1' } });
     await repository.startJob('job-recovered', account.id);

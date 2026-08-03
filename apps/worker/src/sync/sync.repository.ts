@@ -89,7 +89,9 @@ export class SyncRepository {
         }
         for (const metric of metrics) {
           const metadata = metric.metricMetadata?.[key];
+          if (definition.key !== key || definition.source !== source) throw new Error(`metric identity does not match definition: ${key}/${aggregationVersion}`);
           if ((metadata?.aggregation ?? aggregation) !== definition.aggregation) throw new Error(`metric aggregation does not match definition: ${key}/${aggregationVersion}`);
+          if ((metadata?.aggregationVersion ?? aggregationVersion) !== definition.version) throw new Error(`metric version does not match definition: ${key}/${aggregationVersion}`);
           const identity = { noteId: note.id, metricDefinitionId: definition.id, capturedAt: new Date(metric.capturedAt) };
           if (identity.capturedAt < definition.effectiveFrom || (definition.effectiveTo && identity.capturedAt >= definition.effectiveTo)) throw new Error(`metric observation is outside definition effective interval: ${key}/${aggregationVersion}`);
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${identity.noteId}|${identity.metricDefinitionId}|${identity.capturedAt.toISOString()}`}))`;

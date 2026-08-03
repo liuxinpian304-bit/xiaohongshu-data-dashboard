@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 
 export type SyncStage = 'authorize' | 'notes' | 'metrics' | 'comments' | 'replies' | 'complete';
 export type CommentCompletenessStatus = 'partial' | 'page_complete' | 'failed' | 'authorization_required' | 'unverifiable';
-export interface MetricBackfillEvent { backfillId: string; accountId: string; noteId: string; capturedDates: string[]; reason: string }
+export interface MetricBackfillEvent { backfillId: string; accountId: string; noteId: string; capturedDates: string[]; reason: string; source: string; mode?: string; businessDate?: string }
+export interface MetricRollingContext { businessDate: string; windowStart: string; windowEndExclusive: string; mode: string; source: 'official' }
 
 export class SyncRepository {
   constructor(
@@ -14,6 +15,15 @@ export class SyncRepository {
 
   async hasCompletedSyncBefore(accountId: string, jobId: string) {
     return (await this.db.syncJob.count({ where: { accountId, status: 'succeeded', externalJobId: { not: jobId } } })) > 0;
+  }
+
+  async assertActiveAuthorizedOfficialAccount(accountId: string) {
+    const account = await this.db.account.findFirst({ where: {
+      id: accountId, connectorType: 'official', revocationState: 'none',
+      credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } },
+      capabilities: { some: { enabled: true } },
+    }, select: { id: true } });
+    if (!account) throw new Error('account is not an active authorized official account');
   }
 
   async startJob(externalJobId: string, accountId: string, payload?: Prisma.InputJsonObject) {
@@ -63,7 +73,8 @@ export class SyncRepository {
     });
   }
 
-  async saveMetrics(jobId: string, connectorType: string, notePlatformId: string, metrics: NoteMetric[]) {
+  async saveMetrics(jobId: string, connectorType: string, notePlatformId: string, metrics: NoteMetric[], context?: MetricRollingContext) {
+    if (context) validateRollingMetrics(metrics, context);
     const event = await this.db.$transaction(async (tx) => {
       const note = await tx.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType, platformId: notePlatformId } } });
       const capturedDates = backfillBusinessDates(metrics);
@@ -119,8 +130,8 @@ export class SyncRepository {
       await this.upsertCheckpoint(tx, jobId, 'metrics', notePlatformId, null);
       if (!changed) return null;
       const reason = expectedSource === 'official' ? 'official_observation_committed' : 'metric_snapshot_saved';
-      await tx.backfillEvent.upsert({ where: { id: backfillId }, create: { id: backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason }, update: {} });
-      return { backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason };
+      await tx.backfillEvent.upsert({ where: { id: backfillId }, create: { id: backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason, source: expectedSource, mode: context?.mode, businessDate: context?.businessDate }, update: {} });
+      return { backfillId, accountId: note.accountId, noteId: note.id, capturedDates, reason, source: expectedSource, mode: context?.mode, businessDate: context?.businessDate };
     });
     if (event) try { await this.onMetricSnapshotsCommitted?.(event); } catch { /* pending outbox is retried by the worker scanner */ }
   }
@@ -241,4 +252,18 @@ export function backfillBusinessDates(metrics: ReadonlyArray<{ capturedAt: strin
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
   });
   return [...new Set(metrics.map((metric) => formatter.format(new Date(metric.capturedAt))))].sort();
+}
+
+function validateRollingMetrics(metrics: NoteMetric[], context: MetricRollingContext) {
+  const start = new Date(context.windowStart); const end = new Date(context.windowEndExclusive);
+  for (const metric of metrics) {
+    const capturedAt = new Date(metric.capturedAt);
+    if (metric.source !== 'official' || !Number.isFinite(capturedAt.getTime()) || capturedAt < start || capturedAt >= end) throw new Error('official metric capturedAt is outside rolling sync window');
+    for (const key of ['views', 'likes', 'comments'] as const) {
+      const metadata = metric.metricMetadata?.[key];
+      if (metadata?.aggregation && metadata.aggregation !== 'cumulative_delta') {
+        if (!metadata.authoritativePeriod || !metadata.windowStart || !metadata.windowEnd || new Date(metadata.windowStart).getTime() !== start.getTime() || new Date(metadata.windowEnd).getTime() !== end.getTime()) throw new Error(`official ${key} metric window does not match rolling sync window`);
+      }
+    }
+  }
 }

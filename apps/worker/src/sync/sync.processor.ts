@@ -1,4 +1,5 @@
 import { UnrecoverableError, Worker, type Job } from 'bullmq';
+import { fromZonedTime } from 'date-fns-tz';
 
 import { SYNC_ACCOUNT_QUEUE, redisConnection } from '../queues';
 import type { RollingSyncContext, SyncResult, SyncService } from './sync.service';
@@ -19,8 +20,15 @@ export async function processSyncAccountJob(service: SyncService, job: Job<SyncA
 
 function rollingContext(data: SyncAccountJobData): RollingSyncContext | undefined {
   if (!data.businessDate && !data.windowStart && !data.windowEndExclusive && !data.mode && !data.source) return undefined;
-  if (!data.businessDate || !data.windowStart || !data.windowEndExclusive || !data.mode || data.source !== 'official') throw new Error('rolling sync payload is incomplete or non-official');
-  return { businessDate: data.businessDate, windowStart: data.windowStart, windowEndExclusive: data.windowEndExclusive, mode: data.mode, source: data.source };
+  if (!data.businessDate || !data.windowStart || !data.windowEndExclusive || (data.mode !== 'month_to_date' && data.mode !== 'previous_month_final') || data.source !== 'official') throw new Error('rolling sync payload is incomplete or non-official');
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data.businessDate);
+  const canonicalDate = match && new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))).toISOString().slice(0, 10);
+  const start = new Date(data.windowStart); const end = new Date(data.windowEndExclusive);
+  const expectedStart = fromZonedTime(`${data.businessDate}T00:00:00`, 'Asia/Shanghai');
+  const nextDate = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1)).toISOString().slice(0, 10) : '';
+  const expectedEnd = fromZonedTime(`${nextDate}T00:00:00`, 'Asia/Shanghai');
+  if (canonicalDate !== data.businessDate || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end || start.getTime() !== expectedStart.getTime() || end.getTime() !== expectedEnd.getTime()) throw new Error('rolling sync payload has an invalid Shanghai business-day window');
+  return { businessDate: data.businessDate, windowStart: start.toISOString(), windowEndExclusive: end.toISOString(), mode: data.mode, source: data.source };
 }
 
 export function createSyncWorker(service: SyncService) {

@@ -264,6 +264,9 @@ model BackfillEvent {
   noteId        String   @db.Uuid
   capturedDates String[]
   reason        String   @default("metric_snapshot_saved")
+  source        String   @default("legacy")
+  mode          String?
+  businessDate  String?
   dispatchStatus String  @default("pending")
   attempts      Int      @default(0)
   lastError     String?

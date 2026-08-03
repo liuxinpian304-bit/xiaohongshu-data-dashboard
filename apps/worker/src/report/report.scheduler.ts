@@ -52,6 +52,9 @@ export interface BackfillCommittedEvent {
   noteId: string;
   capturedDates: string[];
   reason: string;
+  source?: string;
+  mode?: string;
+  businessDate?: string;
 }
 
 export interface ClaimedBackfillEvent extends BackfillCommittedEvent { claimToken: string }
@@ -92,7 +95,9 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
       const key = `${report.reportType}\0${report.periodStart.toISOString()}\0${report.periodEnd.toISOString()}`;
       if (seenScopes.has(key)) continue;
       seenScopes.add(key);
-      if (event.capturedDates.some((date) => reportContainsBusinessDate(report.periodStart, report.periodEnd, date))) {
+      const overlaps = event.capturedDates.some((date) => reportContainsBusinessDate(report.periodStart, report.periodEnd, date));
+      const sourceMayRebuildComplete = event.source === 'official';
+      if (overlaps && (sourceMayRebuildComplete || (report.status === 'awaiting_data' && report.missingDates.some((date) => event.capturedDates.includes(date))))) {
         affected.push({ ...report, type: report.reportType as ReportType });
       }
     }
@@ -101,16 +106,16 @@ export class PrismaAffectedReportStore implements AffectedReportStore {
 
   async claimPendingEvents(claimToken: string = randomUUID(), now = new Date()) {
     const leaseExpiredAt = new Date(now.getTime() - 5 * 60_000);
-    const events = await this.db.$queryRaw<Array<{ id: string; accountId: string; noteId: string; capturedDates: string[]; reason: string }>>`
+    const events = await this.db.$queryRaw<Array<{ id: string; accountId: string; noteId: string; capturedDates: string[]; reason: string; source: string; mode: string | null; businessDate: string | null }>>`
       UPDATE "BackfillEvent" SET "dispatchStatus" = 'processing', "claimToken" = ${claimToken}, "claimedAt" = ${now}
       WHERE id IN (
         SELECT id FROM "BackfillEvent"
         WHERE "dispatchStatus" IN ('pending', 'failed') OR ("dispatchStatus" = 'processing' AND "claimedAt" < ${leaseExpiredAt})
         ORDER BY "createdAt" ASC FOR UPDATE SKIP LOCKED LIMIT 100
       )
-      RETURNING id, "accountId", "noteId", "capturedDates", reason
+      RETURNING id, "accountId", "noteId", "capturedDates", reason, source, mode, "businessDate"
     `;
-    return events.map((event) => ({ backfillId: event.id, accountId: event.accountId, noteId: event.noteId, capturedDates: event.capturedDates, reason: event.reason, claimToken }));
+    return events.map((event) => ({ backfillId: event.id, accountId: event.accountId, noteId: event.noteId, capturedDates: event.capturedDates, reason: event.reason, source: event.source, mode: event.mode ?? undefined, businessDate: event.businessDate ?? undefined, claimToken }));
   }
   async markDispatched(backfillId: string, claimToken: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'dispatched', dispatchedAt: new Date(), attempts: { increment: 1 }, lastError: null, claimToken: null, claimedAt: null }); }
   async markDispatchFailed(backfillId: string, error: string, claimToken: string) { await this.updateDispatch(backfillId, claimToken, { dispatchStatus: 'failed', attempts: { increment: 1 }, lastError: error, claimToken: null, claimedAt: null }); }

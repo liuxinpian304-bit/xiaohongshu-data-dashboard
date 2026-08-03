@@ -23,6 +23,7 @@ export class SyncService {
   constructor(private readonly connector: XhsConnector, private readonly repository: SyncRepository, private readonly notifications?: NotificationEventPublisher) {}
 
   async runAccountSync(jobId: string, accountId: string, context?: RollingSyncContext): Promise<SyncResult> {
+    if (context) await this.repository.assertActiveAuthorizedOfficialAccount(accountId);
     const job = await this.repository.startJob(jobId, accountId, context ? { ...context } : undefined);
     try {
       for (const stage of STAGES.slice(STAGES.indexOf(job.currentStage as SyncStage))) {
@@ -31,7 +32,7 @@ export class SyncService {
           const valid = await this.notes(jobId, accountId, job.account.platformId);
           if (!valid) return { jobId, accountId, status: 'unverifiable' };
         }
-        if (stage === 'metrics') await this.metrics(jobId, accountId);
+        if (stage === 'metrics') await this.metrics(jobId, accountId, context);
         if (stage === 'comments') {
           const valid = await this.comments(jobId, accountId);
           if (!valid) return { jobId, accountId, status: 'unverifiable' };
@@ -70,10 +71,10 @@ export class SyncService {
     return true;
   }
 
-  private async metrics(jobId: string, accountId: string) {
+  private async metrics(jobId: string, accountId: string, context?: RollingSyncContext) {
     for (const note of await this.repository.notes(accountId)) {
       if ((await this.repository.checkpoint(jobId, 'metrics', note.platformId))?.completed) continue;
-      await this.repository.saveMetrics(jobId, note.connectorType, note.platformId, await this.connector.getNoteMetrics({ noteId: note.platformId }));
+      await this.repository.saveMetrics(jobId, note.connectorType, note.platformId, await this.connector.getNoteMetrics({ noteId: note.platformId }), context);
     }
     await this.repository.advance(jobId, 'comments');
   }

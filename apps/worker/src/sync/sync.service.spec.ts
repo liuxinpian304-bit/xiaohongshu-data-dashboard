@@ -149,6 +149,33 @@ describe('SyncService', () => {
     expect(await prisma.backfillEvent.count({ where: { noteId: note.id } })).toBe(2);
   });
 
+  it('rejects official rolling metrics outside the task day before evidence or outbox commits', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'misaligned-account' } });
+    const note = await prisma.note.create({ data: { accountId: account.id, connectorType: 'official', platformId: 'misaligned-note', title: 'Misaligned', publishedAt: new Date('2026-08-01') } });
+    const metrics = (await new MockXhsConnector().getNoteMetrics({ noteId: 'note-1' })).slice(0, 1).map((metric) => ({ ...metric, source: 'official' as const, capturedAt: '2026-08-02T01:00:00.000Z' }));
+    const repository = new SyncRepository(prisma); await repository.startJob('misaligned-job', account.id);
+    await expect(repository.saveMetrics('misaligned-job', 'official', note.platformId, metrics, {
+      businessDate: '2026-08-01', windowStart: '2026-07-31T16:00:00.000Z', windowEndExclusive: '2026-08-01T16:00:00.000Z', mode: 'month_to_date', source: 'official',
+    })).rejects.toThrow(/outside rolling sync window/);
+    expect(await prisma.metricSnapshot.count({ where: { noteId: note.id } })).toBe(0);
+    expect(await prisma.backfillEvent.count({ where: { noteId: note.id } })).toBe(0);
+  });
+
+  it('rejects a mock account presented as an official rolling task', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'mock', platformId: 'fake-official-account' } });
+    await expect(new SyncService(new MockXhsConnector(), new SyncRepository(prisma)).runAccountSync('fake-official-job', account.id, {
+      businessDate: '2026-08-01', windowStart: '2026-07-31T16:00:00.000Z', windowEndExclusive: '2026-08-01T16:00:00.000Z', mode: 'month_to_date', source: 'official',
+    })).rejects.toThrow(/not an active authorized official account/);
+  });
+
+  it('rejects an official account without active authorization before connector access', async () => {
+    const account = await prisma.account.create({ data: { connectorType: 'official', platformId: 'unauthorized-official-account' } });
+    await expect(new SyncService(new MockXhsConnector(), new SyncRepository(prisma)).runAccountSync('unauthorized-official-job', account.id, {
+      businessDate: '2026-08-01', windowStart: '2026-07-31T16:00:00.000Z', windowEndExclusive: '2026-08-01T16:00:00.000Z', mode: 'month_to_date', source: 'official',
+    })).rejects.toThrow(/not an active authorized official account/);
+    expect(await prisma.syncJob.count({ where: { externalJobId: 'unauthorized-official-job' } })).toBe(0);
+  });
+
   it('keeps metric sync successful when dispatch fails and recovers the persisted outbox through real Redis', async () => {
     const queue = createReportQueue(); await queue.obliterate({ force: true });
     const store = new PrismaAffectedReportStore(prisma);

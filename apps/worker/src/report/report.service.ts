@@ -57,7 +57,7 @@ export interface ReportResult {
   status: ReportStatus;
   missingDates: string[];
   missingFields: MissingReportField[];
-  reports: Array<{ id: string; accountId: string; version: number; status: string }>;
+  reports: Array<{ id: string; accountId: string; version: number; status: string; missingDates: string[]; missingFields: MissingReportField[] }>;
 }
 
 export class ReportService {
@@ -96,7 +96,7 @@ export class ReportService {
       if (reportStatus === 'awaiting_data') status = reportStatus;
       missingDates.forEach((date) => allMissing.add(date));
       allMissingFields.push(...missingFields);
-      reports.push(await this.store.createVersion({
+      const created = await this.store.createVersion({
         accountId,
         type,
         periodStart: period.start,
@@ -113,7 +113,8 @@ export class ReportService {
           const evidence = snapshots.find((snapshot) => snapshot.id === id)!;
           return { snapshotId: id, revision: evidence.revision! };
         }) : [],
-      }));
+      });
+      reports.push({ ...created, missingDates, missingFields });
     }
 
     return { status, missingDates: [...allMissing].sort(), missingFields: allMissingFields, reports };

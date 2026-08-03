@@ -105,8 +105,16 @@ describe('reportJobsForTick', () => {
       { id: 'monthly', accountId: 'account-1', reportType: 'monthly', periodStart: new Date('2026-07-31T16:00:00Z'), periodEnd: new Date('2026-08-31T15:59:59.999Z'), version: 1, status: 'awaiting_data', missingDates: ['2026-08-02'] },
     ];
     const store = new PrismaAffectedReportStore({ report: { findMany: async () => reports } } as never);
-    const affected = await store.findAffectedReports({ backfillId: 'event', accountId: 'account-1', noteId: 'note', capturedDates: ['2026-08-01'], reason: 'changed_official_observation' });
+    const affected = await store.findAffectedReports({ backfillId: 'event', accountId: 'account-1', noteId: 'note', capturedDates: ['2026-08-01'], reason: 'changed_official_observation', source: 'official' });
     expect(affected.map(({ id }) => id)).toEqual(['daily-latest', 'weekly', 'monthly']);
+  });
+
+  it('does not let a mock backfill rebuild complete official report scopes', async () => {
+    const store = new PrismaAffectedReportStore({ report: { findMany: async () => [{
+      id: 'complete-daily', accountId: 'account-1', reportType: 'daily', periodStart: new Date('2026-07-31T16:00:00Z'),
+      periodEnd: new Date('2026-08-01T15:59:59.999Z'), version: 1, status: 'complete', missingDates: [],
+    }] } } as never);
+    expect(await store.findAffectedReports({ backfillId: 'mock-event', accountId: 'account-1', noteId: 'note', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved', source: 'mock' })).toEqual([]);
   });
 
   it('turns queue failures into a structured scheduler error instead of an unhandled rejection', async () => {

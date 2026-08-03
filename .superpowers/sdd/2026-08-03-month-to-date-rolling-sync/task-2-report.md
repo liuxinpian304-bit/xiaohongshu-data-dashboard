@@ -28,5 +28,14 @@
 
 ## 注意事项
 
-- database package 没有 `test` script，其数据库集成用例由 worker/API 套件覆盖；本次另外执行了 database typecheck 和 Prisma 迁移状态检查。
+- database package 的 2 个集成文件、7 项测试通过，并执行了 database typecheck 和 Prisma 迁移状态检查。
 - 工作树中既有 `.superpowers/sdd/2026-08-02-xiaohongshu-dashboard-implementation/task-5-report.md` 修改未触碰、未纳入提交。
+
+## Review Round 1 修复
+
+- `BackfillEvent` 持久化 `source`/`mode`/`businessDate`；official 滚动或修订可重建最新 complete 作用域，mock 保留仅补全 awaiting 的旧行为，历史无法证明来源的事件标为 `legacy` 并 fail closed。
+- official payload 在运行时验证真实 `YYYY-MM-DD` 上海日期、精确午夜半开窗口和允许的 mode；同步前验证账号为未撤销、有有效凭证与已启用能力的 official 账号。
+- official connector 指标在提交前验证：`capturedAt` 必须落在任务日窗口，非累计权威指标的 window 必须与任务半开窗口精确相等；错位时零证据、零 outbox。
+- `ReportResult.reports[]` 每项携带自身 `missingDates`/`missingFields`，通知生产仅使用该项数据，不会在多账号间泄漏汇总缺失。
+- Round 1 RED 分别捕获 mock 误重建 complete、坏日期/错窗仍调用 service、伪 official 账号通过、connector 错位仍提交、A/B 通知共用汇总缺失。
+- Round 1 全量测试：domain 30、worker 108、API 64、database 7、connector 11、web 18，全部通过；Prisma 共 21 个迁移。

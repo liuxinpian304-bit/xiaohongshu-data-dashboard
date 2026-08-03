@@ -18,6 +18,18 @@ describe('sync account processor retry classification', () => {
     }]]);
   });
 
+  it.each([
+    [{ businessDate: '2026-02-30', windowStart: '2026-02-27T16:00:00.000Z', windowEndExclusive: '2026-02-28T16:00:00.000Z' }],
+    [{ businessDate: '2026-08-01', windowStart: 'invalid', windowEndExclusive: '2026-08-01T16:00:00.000Z' }],
+    [{ businessDate: '2026-08-01', windowStart: '2026-07-31T17:00:00.000Z', windowEndExclusive: '2026-08-01T16:00:00.000Z' }],
+  ])('rejects an invalid official rolling-day payload before calling the service', async (invalid) => {
+    let called = false;
+    const service = { runAccountSync: async () => { called = true; throw new Error('should not run'); } } as unknown as SyncService;
+    const data = { accountId: 'account-1', mode: 'month_to_date', source: 'official', ...invalid } as SyncAccountJobData;
+    await expect(processSyncAccountJob(service, { id: 'bad', name: 'sync-account', data } as Job<SyncAccountJobData>)).rejects.toThrow(/rolling sync payload/);
+    expect(called).toBe(false);
+  });
+
   it.each([401, 403])('turns HTTP %s into an unrecoverable BullMQ failure', async (status) => {
     const error = Object.assign(new Error(`HTTP ${status}`), { status });
     const service = { runAccountSync: async () => { throw error; } } as unknown as SyncService;

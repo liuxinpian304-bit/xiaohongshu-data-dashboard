@@ -97,7 +97,7 @@ describe('PrismaReportStore version allocation', () => {
     const base = { accountId: account.id, type: 'daily' as const, periodStart: new Date('2026-08-01T00:00:00+08:00'), periodEnd: new Date('2026-08-01T23:59:59.999+08:00'), metrics: [] };
     const first = await store.createVersion({ ...base, status: 'awaiting_data', missingDates: ['2026-08-01'], missingFields: [] });
     const latest = await store.createVersion({ ...base, status: 'complete', missingDates: [], missingFields: [] });
-    const affected = await new PrismaAffectedReportStore(firstDb).findAffectedReports({ backfillId: 'bf', accountId: account.id, noteId: crypto.randomUUID(), capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved' });
+    const affected = await new PrismaAffectedReportStore(firstDb).findAffectedReports({ backfillId: 'bf', accountId: account.id, noteId: crypto.randomUUID(), capturedDates: ['2026-08-01'], reason: 'official_observation_committed', source: 'official' });
     expect(affected).toEqual([expect.objectContaining({ id: expect.any(String), type: 'daily' })]);
     expect(affected[0]?.id).toBe(latest.id);
     expect(affected[0]?.id).not.toBe(first.id);

@@ -1,8 +1,11 @@
+import { parseCreatorPayload, type CreatorCommentRecord, type CreatorNoteRecord } from './creator-payload';
+
 export type DetectedLoginState = 'loading' | 'awaiting_scan' | 'authenticated' | 'verification_required';
 interface XhsElementSurface {
   isVisible(): Promise<boolean>;
   screenshot(options: { type: 'png' }): Promise<Buffer>;
   click(): Promise<void>;
+  isEnabled?(): Promise<boolean>;
   evaluate<TResult>(fn: (element: { clientWidth: number; clientHeight: number }) => TResult): Promise<TResult>;
 }
 export interface XhsPageSurface {
@@ -11,6 +14,16 @@ export interface XhsPageSurface {
     first(): XhsElementSurface;
     all(): Promise<XhsElementSurface[]>;
   };
+  on?(event: 'response', listener: (response: XhsResponseSurface) => void): void;
+  off?(event: 'response', listener: (response: XhsResponseSurface) => void): void;
+  goto?(url: string, options?: { waitUntil?: 'domcontentloaded'; timeout?: number }): Promise<unknown>;
+  waitForTimeout?(milliseconds: number): Promise<void>;
+}
+
+interface XhsResponseSurface {
+  url(): string;
+  headers(): Record<string, string> | Promise<Record<string, string>>;
+  json(): Promise<unknown>;
 }
 
 export class CollectionPager {
@@ -82,6 +95,63 @@ export class XhsPageAdapter {
       if (await element.isVisible()) return element.screenshot({ type: 'png' });
     }
     throw new Error('collector_qr_not_found');
+  }
+
+  async collectVisibleRecords(capturedAt = new Date().toISOString()): Promise<{ notes: CreatorNoteRecord[]; comments: CreatorCommentRecord[] }> {
+    if (await this.detectLoginState() !== 'authenticated') throw new Error('collector_authentication_required');
+    if (!this.page.on || !this.page.off || !this.page.goto) throw new Error('collector_page_changed');
+    const notes = new Map<string, CreatorNoteRecord>();
+    const comments = new Map<string, CreatorCommentRecord>();
+    const pending = new Set<Promise<void>>();
+    const listener = (response: XhsResponseSurface) => {
+      const task = this.consumeCreatorResponse(response, capturedAt, notes, comments).finally(() => pending.delete(task));
+      pending.add(task);
+    };
+    this.page.on('response', listener);
+    try {
+      await this.page.goto('https://creator.xiaohongshu.com/new/note-manager', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await this.settleResponses(pending);
+      await this.clickThroughVisiblePages(pending);
+      const commentNavigation = this.page.locator('text=评论管理').first();
+      if (await commentNavigation.isVisible()) {
+        await commentNavigation.click();
+        await this.settleResponses(pending);
+        await this.clickThroughVisiblePages(pending);
+      }
+      return { notes: [...notes.values()], comments: [...comments.values()] };
+    } finally {
+      this.page.off('response', listener);
+    }
+  }
+
+  private async consumeCreatorResponse(response: XhsResponseSurface, capturedAt: string, notes: Map<string, CreatorNoteRecord>, comments: Map<string, CreatorCommentRecord>) {
+    let url: URL;
+    try { url = new URL(response.url()); } catch { return; }
+    if (url.origin !== 'https://creator.xiaohongshu.com') return;
+    const headers = await response.headers();
+    if (!headers['content-type']?.toLowerCase().includes('json')) return;
+    const declared = Number(headers['content-length'] ?? 0);
+    if (Number.isFinite(declared) && declared > 5_000_000) return;
+    try {
+      const parsed = parseCreatorPayload(await response.json(), capturedAt);
+      for (const note of parsed.notes) notes.set(note.platformId, note);
+      for (const comment of parsed.comments) comments.set(comment.platformId, comment);
+    } catch { /* Ignore unrelated or structurally unsafe creator responses. */ }
+  }
+
+  private async settleResponses(pending: Set<Promise<void>>) {
+    await this.page.waitForTimeout?.(500);
+    while (pending.size) await Promise.all([...pending]);
+  }
+
+  private async clickThroughVisiblePages(pending: Set<Promise<void>>) {
+    for (let page = 0; page < 1_000; page += 1) {
+      const next = this.page.locator('text=下一页').first();
+      if (!await next.isVisible() || (next.isEnabled && !await next.isEnabled())) return;
+      await next.click();
+      await this.settleResponses(pending);
+    }
+    throw new Error('collector_page_limit_exceeded');
   }
 
   private async qrImage() {

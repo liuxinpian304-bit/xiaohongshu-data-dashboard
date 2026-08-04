@@ -132,6 +132,29 @@ describe('LocalXhsSessionManager', () => {
     expect(close).toHaveBeenCalledOnce();
     expect(manager.status()).toMatchObject({ state: 'closed' });
   });
+
+  it('runs collection through the authenticated page adapter instead of a placeholder', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
+    const manager = new LocalXhsSessionManager({
+      profileDirectory: join(root, 'profile'),
+      launch: async () => ({ close: async () => undefined }),
+      adapter: {
+        detectLoginState: async () => 'authenticated',
+        captureQr: async () => Buffer.from([]),
+        collectVisibleRecords: async () => ({
+          notes: [{ platformId: 'note-1', title: '本人笔记', publishedAt: '2026-08-03T02:00:00.000Z', capturedAt: '2026-08-04T07:00:00.000Z', metrics: { views: null, likes: 5, comments: 0 } }],
+          comments: [],
+        }),
+      },
+    });
+    const events: unknown[] = [];
+    await manager.start();
+
+    await manager.collect(() => undefined, (event) => events.push(event), 'run-collection', '2026-08-04T07:00:00.000Z');
+
+    expect(events).toContainEqual(expect.objectContaining({ type: 'note', runId: 'run-collection' }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'completed', runId: 'run-collection' }));
+  });
 });
 
 function pngFixture(width: number, height: number) {

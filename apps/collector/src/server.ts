@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { CollectionRun, type CollectionStatus } from './collection-run';
+import { CollectionRun, type CollectionProgress, type CollectionStatus } from './collection-run';
 import { LocalXhsSessionManager, type QrSnapshot, type SessionStatus } from './session-manager';
 
 interface CollectorConfiguration { enabled: boolean; host: string; token: string }
@@ -22,6 +22,12 @@ export function validateCollectorConfiguration(configuration: CollectorConfigura
   if (configuration.host !== '127.0.0.1') throw new Error('collector_loopback_required');
   if (Buffer.byteLength(configuration.token) < 32) throw new Error('collector_token_invalid');
   return configuration;
+}
+
+export function createRuntimeCollection<TEvent>(manager: {
+  collect(progress: (value: CollectionProgress) => void, emit: (event: TEvent) => void, runId: string): Promise<void>;
+}) {
+  return new CollectionRun<TEvent>({ collect: (progress, emit, runId) => manager.collect(progress, emit, runId) });
 }
 
 export function createCollectorServer(options: { token: string; manager: SessionManagerLike; collection: CollectionRunLike }): Server {
@@ -84,7 +90,7 @@ async function main() {
   });
   const profileDirectory = process.env.LOCAL_XHS_PROFILE_DIR ?? join(homedir(), 'Library', 'Application Support', 'xiaohongshu-dashboard', 'collector-profile');
   const manager = new LocalXhsSessionManager({ profileDirectory });
-  const collection = new CollectionRun({ collect: async () => { throw new Error('collector_collection_not_configured'); } });
+  const collection = createRuntimeCollection(manager);
   const server = createCollectorServer({ token: configuration.token, manager, collection });
   const close = async () => { await manager.close(); server.close(); };
   process.once('SIGINT', () => { void close(); });

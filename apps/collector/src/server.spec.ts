@@ -1,11 +1,20 @@
 import { request } from 'node:http';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { createCollectorServer, validateCollectorConfiguration } from './server';
+import { createCollectorServer, createRuntimeCollection, validateCollectorConfiguration } from './server';
 
 const token = 'a'.repeat(48);
 
 describe('collector server', () => {
+  it('wires runtime collection to the authenticated session manager', async () => {
+    const collect = vi.fn(async (_progress, emit, runId) => emit({ type: 'completed', runId }));
+    const runtime = createRuntimeCollection({ collect });
+    const started = runtime.start();
+    await vi.waitFor(() => expect(runtime.status().state).toBe('completed'));
+    expect(collect).toHaveBeenCalledOnce();
+    expect(runtime.events(started.runId!)).toEqual([{ type: 'completed', runId: started.runId }]);
+  });
+
   it('rejects disabled, non-loopback and weak-token configurations', () => {
     expect(() => validateCollectorConfiguration({ enabled: false, host: '127.0.0.1', token })).toThrow('collector_disabled');
     expect(() => validateCollectorConfiguration({ enabled: true, host: '0.0.0.0', token })).toThrow('collector_loopback_required');

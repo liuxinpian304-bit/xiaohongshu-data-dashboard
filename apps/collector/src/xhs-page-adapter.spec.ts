@@ -71,6 +71,39 @@ describe('XhsPageAdapter', () => {
 
     await expect(new XhsPageAdapter(page as any).captureQr()).resolves.toEqual(qr);
   });
+
+  it('collects only JSON received while visiting the authenticated creator management pages', async () => {
+    const listeners = new Set<(response: any) => void>();
+    const responses = [{
+      url: () => 'https://creator.xiaohongshu.com/api/normal-browser-response',
+      headers: () => ({ 'content-type': 'application/json', 'content-length': '256' }),
+      json: async () => ({ data: { notes: [{ note_id: 'note-1', title: '本人笔记', publish_time: 1_754_214_400, like_count: 5, comment_count: 2 }], has_more: false } }),
+    }];
+    const visited: string[] = [];
+    const page = {
+      url: () => 'https://creator.xiaohongshu.com/new/home',
+      locator: (selector: string) => ({
+        first: () => ({
+          isVisible: async () => selector === 'text=数据看板',
+          isEnabled: async () => false,
+          screenshot: async () => Buffer.from([]),
+          click: async () => undefined,
+          evaluate: async () => ({ width: 0, height: 0 }),
+        }),
+        all: async () => [],
+      }),
+      on: (_event: 'response', listener: (response: any) => void) => listeners.add(listener),
+      off: (_event: 'response', listener: (response: any) => void) => listeners.delete(listener),
+      goto: async (url: string) => { visited.push(url); for (const response of responses) for (const listener of listeners) listener(response); },
+      waitForTimeout: async () => undefined,
+    };
+
+    const result = await new XhsPageAdapter(page as any).collectVisibleRecords('2026-08-04T07:00:00.000Z');
+
+    expect(visited[0]).toBe('https://creator.xiaohongshu.com/new/note-manager');
+    expect(result.notes).toEqual([expect.objectContaining({ platformId: 'note-1', metrics: { views: null, likes: 5, comments: 2 } })]);
+    expect(listeners.size).toBe(0);
+  });
 });
 
 describe('CollectionPager', () => {

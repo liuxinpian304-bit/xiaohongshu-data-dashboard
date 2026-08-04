@@ -2,6 +2,9 @@ import { chmod, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 
 import { chromium } from 'playwright';
+import { collectCreatorEvents, type CreatorCollectionEvent } from './creator-collection';
+import type { CollectionProgress } from './collection-run';
+import type { CreatorCommentRecord, CreatorNoteRecord } from './creator-payload';
 import { XhsPageAdapter, type XhsPageSurface } from './xhs-page-adapter';
 
 export type SessionState = 'idle' | 'launching' | 'browser_open' | 'user_confirmed' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'closed' | 'error';
@@ -13,6 +16,7 @@ interface PageAdapter {
   prepareLogin?(): Promise<void>;
   detectLoginState(): Promise<'loading' | 'awaiting_scan' | 'authenticated' | 'verification_required'>;
   captureQr(): Promise<Buffer>;
+  collectVisibleRecords?(capturedAt?: string): Promise<{ notes: CreatorNoteRecord[]; comments: CreatorCommentRecord[] }>;
 }
 
 export interface SessionManagerOptions {
@@ -83,6 +87,12 @@ export class LocalXhsSessionManager {
     this.destroyQr();
     this.setState('closed');
     return this.status();
+  }
+
+  async collect(progress: (value: CollectionProgress) => void, emit: (event: CreatorCollectionEvent) => void, runId: string, capturedAt = new Date().toISOString()) {
+    if (!this.adapter || await this.adapter.detectLoginState() !== 'authenticated') throw new Error('collector_authentication_required');
+    if (!this.adapter.collectVisibleRecords) throw new Error('collector_page_changed');
+    await collectCreatorEvents(this.adapter as Required<Pick<PageAdapter, 'collectVisibleRecords'>>, progress, emit, runId, capturedAt);
   }
 
   private async launch() {

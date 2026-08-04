@@ -21,6 +21,15 @@ describe('XhsPageAdapter', () => {
     await expect(new XhsPageAdapter(page as any).detectLoginState()).resolves.toBe('verification_required');
   });
 
+  it('keeps an unrendered creator SPA in loading state instead of claiming a QR exists', async () => {
+    const page = fakePage({
+      url: 'https://creator.xiaohongshu.com/',
+      visibleSelectors: [],
+    });
+
+    await expect(new XhsPageAdapter(page as any).detectLoginState()).resolves.toBe('loading');
+  });
+
   it('captures only the first visible QR element', async () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const screenshot = vi.fn(async () => png);

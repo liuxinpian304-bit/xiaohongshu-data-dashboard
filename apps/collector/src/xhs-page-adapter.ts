@@ -1,4 +1,4 @@
-export type DetectedLoginState = 'awaiting_scan' | 'authenticated' | 'verification_required';
+export type DetectedLoginState = 'loading' | 'awaiting_scan' | 'authenticated' | 'verification_required';
 export interface XhsPageSurface {
   url(): string;
   locator(selector: string): {
@@ -37,7 +37,8 @@ export class XhsPageAdapter {
     if (url.origin === 'https://creator.xiaohongshu.com' && !url.pathname.startsWith('/login') && await this.anyVisible(authenticatedSelectors)) {
       return 'authenticated';
     }
-    return 'awaiting_scan';
+    if (await this.anyVisible(qrSelectors)) return 'awaiting_scan';
+    return 'loading';
   }
 
   async captureQr(): Promise<Buffer> {

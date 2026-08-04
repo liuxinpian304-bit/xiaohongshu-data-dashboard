@@ -48,7 +48,7 @@ export interface ReportGenerationContext {
 export interface ReportStore {
   listAccountIds(): Promise<string[]>;
   listNoteIds(accountId: string): Promise<string[]>;
-  listRequiredMetricDefinitions(start?: Date, end?: Date): Promise<RequiredMetricDefinition[]>;
+  listRequiredMetricDefinitions(accountId: string, start?: Date, end?: Date): Promise<RequiredMetricDefinition[]>;
   loadCumulativeMetrics(accountId: string, start: Date, end: Date): Promise<CumulativeSnapshot[]>;
   createVersion(input: CreateReportVersionInput): Promise<{ id: string; accountId: string; version: number; status: string }>;
 }
@@ -75,7 +75,7 @@ export class ReportService {
     for (const accountId of accountIds) {
       const snapshots = await this.store.loadCumulativeMetrics(accountId, period.start, period.end);
       const [noteIds, metricDefinitions] = await Promise.all([
-        this.store.listNoteIds(accountId), this.store.listRequiredMetricDefinitions(period.start, period.end),
+        this.store.listNoteIds(accountId), this.store.listRequiredMetricDefinitions(accountId, period.start, period.end),
       ]);
       const transitions = metricDefinitions.filter(({ segments }) => segments && new Set(segments.map(({ aggregation }) => aggregation)).size > 1);
       const transitionKeys = new Set(transitions.map(({ key }) => key));
@@ -169,26 +169,34 @@ export class PrismaReportStore implements ReportStore {
     return (await this.db.note.findMany({ where: { accountId }, select: { id: true }, orderBy: { id: 'asc' } })).map(({ id }) => id);
   }
 
-  async listRequiredMetricDefinitions(start = new Date(0), end = new Date(8640000000000000)): Promise<RequiredMetricDefinition[]> {
+  async listRequiredMetricDefinitions(accountId: string, start = new Date(0), end = new Date(8640000000000000)): Promise<RequiredMetricDefinition[]> {
+    const source = await this.accountMetricSource(accountId);
     const rows = await this.db.metricDefinition.findMany({
-      where: { key: { in: ['views', 'likes', 'comments'] }, source: { in: ['legacy', 'official'] }, effectiveFrom: { lte: end }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: start } }] },
+      where: { key: { in: ['views', 'likes', 'comments'] }, source: source === 'official' ? { in: ['legacy', 'official'] } : source, effectiveFrom: { lte: end }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: start } }] },
       orderBy: [{ key: 'asc' }, { effectiveFrom: 'asc' }], select: { id: true, key: true, source: true, aggregation: true, effectiveFrom: true, effectiveTo: true },
     });
     return (['views', 'likes', 'comments'] as const).flatMap((key) => {
       const keyRows = rows.filter((row) => row.key === key);
-      const selected = keyRows.some((row) => row.source === 'official') ? keyRows.filter((row) => row.source === 'official') : keyRows;
+      const selected = source === 'official' && keyRows.some((row) => row.source === 'official') ? keyRows.filter((row) => row.source === 'official') : keyRows;
       const segments = selected.map(({ id, aggregation, effectiveFrom, effectiveTo }) => ({ id, aggregation, effectiveFrom, effectiveTo }));
       return segments.length ? [{ key, id: segments[0]!.id, aggregation: segments[0]!.aggregation, segments }] : [];
     });
   }
 
   async loadCumulativeMetrics(accountId: string, start: Date, end: Date) {
+    const source = await this.accountMetricSource(accountId);
     const select = { id: true, revision: true, metricDefinitionId: true, noteId: true, capturedAt: true, value: true, aggregation: true, aggregationVersion: true, windowStart: true, windowEnd: true, authoritativePeriod: true, metricDefinition: { select: { key: true } } } as const;
     const [inside, baselines] = await Promise.all([
-      this.db.metricSnapshot.findMany({ where: { note: { accountId }, source: 'official', supersededAt: null, capturedAt: { gte: start, lte: end }, availability: 'available', value: { not: null } }, select, orderBy: { capturedAt: 'asc' } }),
-      this.db.metricSnapshot.findMany({ where: { note: { accountId }, source: 'official', supersededAt: null, capturedAt: { lt: start }, availability: 'available', value: { not: null }, aggregation: 'cumulative_delta' }, select, orderBy: { capturedAt: 'desc' }, distinct: ['noteId', 'metricDefinitionId'] }),
+      this.db.metricSnapshot.findMany({ where: { note: { accountId }, source, supersededAt: null, capturedAt: { gte: start, lte: end }, availability: 'available', value: { not: null } }, select, orderBy: { capturedAt: 'asc' } }),
+      this.db.metricSnapshot.findMany({ where: { note: { accountId }, source, supersededAt: null, capturedAt: { lt: start }, availability: 'available', value: { not: null }, aggregation: 'cumulative_delta' }, select, orderBy: { capturedAt: 'desc' }, distinct: ['noteId', 'metricDefinitionId'] }),
     ]);
     return [...baselines, ...inside].sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()).map(({ metricDefinition, ...snapshot }) => ({ ...snapshot, metricKey: metricDefinition.key, value: Number(snapshot.value) }));
+  }
+
+  private async accountMetricSource(accountId: string) {
+    const account = await this.db.account.findUniqueOrThrow({ where: { id: accountId }, select: { connectorType: true } });
+    if (!['official', 'mock', 'self-scrape'].includes(account.connectorType)) throw new Error('unsupported account metric source');
+    return account.connectorType;
   }
 
   async createVersion(input: CreateReportVersionInput) {

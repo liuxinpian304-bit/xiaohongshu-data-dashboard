@@ -21,7 +21,7 @@ export interface SelfScrapeImportSummary {
 }
 
 const definitions = [
-  ['views', '浏览量'], ['likes', '点赞量'], ['comments', '评论量'],
+  ['views', '阅读量'], ['likes', '点赞'], ['comments', '评论'],
 ] as const;
 
 export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Promise<SelfScrapeImportSummary> {
@@ -49,12 +49,14 @@ async function commitRecord(db: DatabaseClient, accountPlatformId: string, recor
     });
     const existingNote = await tx.note.findUnique({ where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: record.note.platformId } } });
     if (existingNote && existingNote.accountId !== account.id) throw new Error('self-scrape note belongs to a different account');
-    const note = await tx.note.upsert({
-      where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: record.note.platformId } },
-      create: { accountId: account.id, connectorType: 'self-scrape', platformId: record.note.platformId, title: record.note.title, publishedAt: new Date(record.note.publishedAt) },
-      update: { title: record.note.title, publishedAt: new Date(record.note.publishedAt), lastSeenAt: new Date() },
-    });
+    const noteChanged = !existingNote || existingNote.title !== record.note.title || existingNote.publishedAt.toISOString() !== record.note.publishedAt;
+    const note = existingNote
+      ? noteChanged
+        ? await tx.note.update({ where: { id: existingNote.id }, data: { title: record.note.title, publishedAt: new Date(record.note.publishedAt), lastSeenAt: new Date() } })
+        : existingNote
+      : await tx.note.create({ data: { accountId: account.id, connectorType: 'self-scrape', platformId: record.note.platformId, title: record.note.title, publishedAt: new Date(record.note.publishedAt) } });
     let snapshotsChanged = 0;
+    const changedRevisions: string[] = [];
     for (const [key, displayName] of definitions) {
       const metric = record.metrics.find((candidate) => candidate.key === key)!;
       const definition = await tx.metricDefinition.upsert({
@@ -70,17 +72,19 @@ async function commitRecord(db: DatabaseClient, accountPlatformId: string, recor
         const correctedAt = new Date();
         await tx.$executeRaw`SELECT supersede_metric_snapshot(${existing.id}::uuid, ${correctedAt}::timestamptz)`;
         await tx.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: metric.availability, value: metric.value, capturedAt, observedAt: capturedAt, source: 'self-scrape', aggregation: 'cumulative_delta', aggregationVersion: 'jsonl-v1', authoritativePeriod: false, revision: existing.revision + 1, supersedesId: existing.id, correctedAt, correctionReason: 'changed_self_scrape_observation' } });
+        changedRevisions.push(`${key}:${existing.revision + 1}`);
       } else {
         await tx.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: metric.availability, value: metric.value, capturedAt, observedAt: capturedAt, source: 'self-scrape', aggregation: 'cumulative_delta', aggregationVersion: 'jsonl-v1', authoritativePeriod: false } });
+        changedRevisions.push(`${key}:1`);
       }
       snapshotsChanged += 1;
     }
     if (snapshotsChanged > 0) {
       const date = shanghaiDate(record.metrics[0]!.capturedAt);
-      const id = createHash('sha256').update(`${note.id}\0${record.metrics[0]!.capturedAt}\0${record.metrics.map(({ value, availability }) => `${availability}:${value}`).join(',')}`).digest('hex').slice(0, 32);
+      const id = createHash('sha256').update(`${note.id}\0${record.metrics[0]!.capturedAt}\0${changedRevisions.join(',')}`).digest('hex').slice(0, 32);
       await tx.backfillEvent.upsert({ where: { id }, create: { id, accountId: account.id, noteId: note.id, capturedDates: [date], reason: 'self_scrape_observation_committed', source: 'self-scrape', businessDate: date }, update: {} });
     }
-    return { noteChanged: !existingNote || existingNote.title !== record.note.title || existingNote.publishedAt.toISOString() !== record.note.publishedAt, snapshotsChanged };
+    return { noteChanged, snapshotsChanged };
   });
 }
 

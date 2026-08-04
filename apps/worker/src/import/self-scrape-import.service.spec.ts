@@ -44,12 +44,17 @@ describe('importSelfScrapeFile', () => {
     const file = join(directory, 'my_notes.jsonl');
     await writeFile(file, `${JSON.stringify(record)}\n`);
     await importSelfScrapeFile({ file, accountPlatformId: 'my-own-account', commit: true, db: prisma });
+    const noteBeforeReplay = await prisma.note.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: record.note.platformId } } });
 
     expect(await importSelfScrapeFile({ file, accountPlatformId: 'my-own-account', commit: true, db: prisma })).toMatchObject({ notesChanged: 0, snapshotsChanged: 0 });
+    expect((await prisma.note.findUniqueOrThrow({ where: { id: noteBeforeReplay.id } })).updatedAt).toEqual(noteBeforeReplay.updatedAt);
     await writeFile(file, `${JSON.stringify({ ...record, metrics: { ...record.metrics, likes: 13 } })}\n`);
     expect(await importSelfScrapeFile({ file, accountPlatformId: 'my-own-account', commit: true, db: prisma })).toMatchObject({ snapshotsChanged: 1 });
-    expect(await prisma.metricSnapshot.count({ where: { source: 'self-scrape' } })).toBe(4);
-    expect(await prisma.metricSnapshot.findFirstOrThrow({ where: { source: 'self-scrape', metricDefinition: { key: 'likes' }, supersededAt: null } })).toMatchObject({ revision: 2 });
+    await writeFile(file, `${JSON.stringify(record)}\n`);
+    expect(await importSelfScrapeFile({ file, accountPlatformId: 'my-own-account', commit: true, db: prisma })).toMatchObject({ snapshotsChanged: 1 });
+    expect(await prisma.metricSnapshot.count({ where: { source: 'self-scrape' } })).toBe(5);
+    expect(await prisma.metricSnapshot.findFirstOrThrow({ where: { source: 'self-scrape', metricDefinition: { key: 'likes' }, supersededAt: null } })).toMatchObject({ revision: 3 });
+    expect(await prisma.backfillEvent.count({ where: { source: 'self-scrape' } })).toBe(3);
   });
 
   it('performs a dry-run without writing any database rows', async () => {

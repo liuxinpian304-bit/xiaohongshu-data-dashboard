@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ReportService, type ReportStore } from './report.service';
+import { PrismaReportStore, ReportService, type ReportStore } from './report.service';
 
 function storeWithSnapshots(snapshotDates: string[]): ReportStore {
   const versions: Array<{ version: number; status: string }> = [];
@@ -20,6 +20,20 @@ function storeWithSnapshots(snapshotDates: string[]): ReportStore {
 }
 
 describe('ReportService', () => {
+  it('selects self-scrape definitions and snapshots for a self-scrape account', async () => {
+    const definitionQueries: unknown[] = [];
+    const snapshotQueries: unknown[] = [];
+    const db = {
+      account: { findUniqueOrThrow: async () => ({ connectorType: 'self-scrape' }) },
+      metricDefinition: { findMany: async (query: unknown) => { definitionQueries.push(query); return []; } },
+      metricSnapshot: { findMany: async (query: unknown) => { snapshotQueries.push(query); return []; } },
+    } as never;
+    const store = new PrismaReportStore(db);
+    await store.listRequiredMetricDefinitions('account-1', new Date('2026-08-01'), new Date('2026-08-02'));
+    await store.loadCumulativeMetrics('account-1', new Date('2026-08-01'), new Date('2026-08-02'));
+    expect(definitionQueries).toEqual([expect.objectContaining({ where: expect.objectContaining({ source: 'self-scrape' }) })]);
+    expect(snapshotQueries).toEqual(expect.arrayContaining([expect.objectContaining({ where: expect.objectContaining({ source: 'self-scrape' }) })]));
+  });
   it('persists only the exact snapshot revisions consumed by aggregation', async () => {
     let created: any;
     const store: ReportStore = {

@@ -110,12 +110,12 @@ export class XhsPageAdapter {
     this.page.on('response', listener);
     try {
       await this.page.goto('https://creator.xiaohongshu.com/new/note-manager', { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await this.settleResponses(pending);
+      await this.settleResponses(pending, () => notes.size > 0, 40);
       await this.clickThroughVisiblePages(pending);
       const commentNavigation = this.page.locator('text=评论管理').first();
       if (await commentNavigation.isVisible()) {
         await commentNavigation.click();
-        await this.settleResponses(pending);
+        await this.settleResponses(pending, () => comments.size > 0, 20);
         await this.clickThroughVisiblePages(pending);
       }
       return { notes: [...notes.values()], comments: [...comments.values()] };
@@ -139,9 +139,12 @@ export class XhsPageAdapter {
     } catch { /* Ignore unrelated or structurally unsafe creator responses. */ }
   }
 
-  private async settleResponses(pending: Set<Promise<void>>) {
-    await this.page.waitForTimeout?.(500);
-    while (pending.size) await Promise.all([...pending]);
+  private async settleResponses(pending: Set<Promise<void>>, ready: () => boolean = () => true, attempts = 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await this.page.waitForTimeout?.(250);
+      while (pending.size) await Promise.all([...pending]);
+      if (ready()) return;
+    }
   }
 
   private async clickThroughVisiblePages(pending: Set<Promise<void>>) {

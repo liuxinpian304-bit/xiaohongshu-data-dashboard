@@ -104,6 +104,29 @@ describe('XhsPageAdapter', () => {
     expect(result.notes).toEqual([expect.objectContaining({ platformId: 'note-1', metrics: { views: null, likes: 5, comments: 2 } })]);
     expect(listeners.size).toBe(0);
   });
+
+  it('waits for a delayed creator response instead of returning an unproven empty account', async () => {
+    const listeners = new Set<(response: any) => void>();
+    let waits = 0;
+    const response = {
+      url: () => 'https://creator.xiaohongshu.com/api/delayed-response',
+      headers: () => ({ 'content-type': 'application/json' }),
+      json: async () => ({ data: { notes: [{ id: 'note-delayed', display_title: '延迟笔记', time: '1754214400', likes: 1, comments_count: 0, view_count: 3 }] } }),
+    };
+    const page = {
+      url: () => 'https://creator.xiaohongshu.com/new/home',
+      locator: (selector: string) => ({ first: () => ({ isVisible: async () => selector === 'text=数据看板', isEnabled: async () => false, screenshot: async () => Buffer.from([]), click: async () => undefined, evaluate: async () => ({ width: 0, height: 0 }) }), all: async () => [] }),
+      on: (_event: 'response', listener: (value: any) => void) => listeners.add(listener),
+      off: (_event: 'response', listener: (value: any) => void) => listeners.delete(listener),
+      goto: async () => undefined,
+      waitForTimeout: async () => { waits += 1; if (waits === 3) for (const listener of listeners) listener(response); },
+    };
+
+    const result = await new XhsPageAdapter(page as any).collectVisibleRecords('2026-08-04T07:00:00.000Z');
+
+    expect(result.notes).toEqual([expect.objectContaining({ platformId: 'note-delayed' })]);
+    expect(waits).toBeGreaterThanOrEqual(3);
+  });
 });
 
 describe('CollectionPager', () => {

@@ -13,7 +13,7 @@ export type DashboardCard = {
 
 export type DashboardTrendPoint = { date: string; metrics: DashboardCard[] };
 export type DashboardRankedNote = { id: string; accountId: string; title: string; publishedAt: string; metricKey: string; metricLabel: string; value: string };
-export type Account = { id: string; connectorType: string; platformId: string; displayName: string | null; capabilities: Array<{ enabled: boolean }> };
+export type Account = { id: string; connectorType: string; platformId: string; xhsAccountId: string | null; displayName: string | null; avatarUrl: string | null; identityVerifiedAt: string | null; capabilities: Array<{ enabled: boolean }> };
 export type SyncJob = { id: string; accountId: string; status: 'pending' | 'running' | 'succeeded' | 'failed'; currentStage: string; error: string | null; createdAt: string; startedAt: string | null; completedAt: string | null };
 export type Note = { id: string; accountId: string; connectorType: string; platformId: string; title: string; publishedAt: string; lastSeenAt: string };
 export type NoteDetail = Note & { metrics: Array<{ key: string; displayName: string; availability: DataAvailabilityState; value: string | null; source: string; observedAt: string }> };

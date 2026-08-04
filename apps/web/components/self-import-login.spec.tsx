@@ -29,12 +29,23 @@ describe('SelfImportLogin', () => {
     vi.stubGlobal('fetch', vi.fn(async () => {
       calls += 1;
       const state = calls === 1 ? 'awaiting_scan' : 'authenticated';
-      return new Response(JSON.stringify({ state, changedAt: '2026-08-04T00:00:00.000Z', ...(state === 'awaiting_scan' ? { qrExpiresAt: '2026-08-04T00:02:00.000Z' } : {}) }), { status: 200 });
+      return new Response(JSON.stringify({ state, changedAt: '2026-08-04T00:00:00.000Z', ...(state === 'awaiting_scan' ? { qrExpiresAt: '2026-08-04T00:02:00.000Z' } : { identityVerifiedAt: '2026-08-04T00:00:00.000Z', identity: { platformId: 'stable-user-1', xhsAccountId: 'red_123', displayName: '真实昵称', avatarUrl: null } }) }), { status: 200 });
     }));
     render(<SelfImportLogin />);
 
     expect(await screen.findByText('等待扫码')).toBeVisible();
     await waitFor(() => expect(screen.getByText('账号已连接')).toBeVisible(), { timeout: 3_000 });
+    expect(screen.getByRole('heading', { name: '真实昵称' })).toBeVisible();
+    expect(screen.getByText('小红书号：red_123')).toBeVisible();
     expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled();
+  });
+
+  it('asks for a new scan after the persisted platform session expires', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ state: 'expired', changedAt: '2026-08-04T00:00:00.000Z' }), { status: 200 })));
+    render(<SelfImportLogin />);
+
+    expect(await screen.findByText('需要重新扫码')).toBeVisible();
+    expect(screen.queryByText('账号已连接')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新扫码登录' })).toBeEnabled();
   });
 });

@@ -19,6 +19,7 @@ describe('importSelfScrapeFile', () => {
     await prisma.$executeRawUnsafe(`TRUNCATE TABLE "MetricSnapshot" CASCADE`);
     await prisma.metricDefinition.deleteMany({ where: { source: 'self-scrape' } });
     await prisma.note.deleteMany({ where: { connectorType: 'self-scrape' } });
+    await prisma.report.deleteMany({ where: { account: { connectorType: 'self-scrape' } } });
     await prisma.account.deleteMany({ where: { connectorType: 'self-scrape' } });
   });
 
@@ -82,7 +83,7 @@ describe('importSelfScrapeFile', () => {
     await expect(importSelfScrapeFile({ file, accountPlatformId: 'second-account', commit: true, db: prisma })).rejects.toThrow('different account');
     expect(await prisma.account.count({ where: { connectorType: 'self-scrape' } })).toBe(1);
     const failed = await prisma.auditLog.findFirstOrThrow({ where: { action: 'self_scrape.import_failed' }, orderBy: { createdAt: 'desc' } });
-    expect(failed).toMatchObject({ actor: 'local-cli', entityType: 'SelfScrapeImportRun', details: expect.objectContaining({ code: 'Error' }) });
+    expect(failed).toMatchObject({ actor: 'local-cli', entityType: 'SelfScrapeImportRun', details: expect.objectContaining({ code: 'Error', sha256: expect.stringMatching(/^[a-f0-9]{64}$/), totalLines: 1, validLines: 1, invalidLines: 0 }) });
     expect(JSON.stringify(failed.details)).not.toContain('second-account');
     expect(JSON.stringify(failed.details)).not.toContain(record.note.title);
   });

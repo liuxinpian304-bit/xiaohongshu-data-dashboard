@@ -26,33 +26,39 @@ const definitions = [
 ] as const;
 
 export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Promise<SelfScrapeImportSummary> {
-  const parsed = parseSelfScrapeJsonl(createReadStream(options.file));
   const runId = options.commit ? `self-scrape-import-${randomUUID()}` : null;
   let notesChanged = 0;
   let snapshotsChanged = 0;
+  const validation = parseSelfScrapeJsonl(createReadStream(options.file));
+  for await (const _entry of validation.entries) { /* validate and summarize before any write */ }
+  const dryRun = await validation.summary;
+  if (!options.commit) return { ...dryRun, runId, notesChanged, snapshotsChanged };
+
   const accountTargetHash = createHash('sha256').update(options.accountPlatformId).digest('hex');
-  if (runId) await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_started', entityType: 'SelfScrapeImportRun', entityId: runId, details: { accountTargetHash } } });
+  await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_started', entityType: 'SelfScrapeImportRun', entityId: runId!, details: { accountTargetHash, sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines } } });
+  const parsed = parseSelfScrapeJsonl(createReadStream(options.file));
   try {
     for await (const entry of parsed.entries) {
-      if (!entry.ok || !options.commit) continue;
+      if (!entry.ok) continue;
       const result = await commitRecord(options.db, options.accountPlatformId, entry.record, runId!);
       notesChanged += result.noteChanged ? 1 : 0;
       snapshotsChanged += result.snapshotsChanged;
     }
 
-    const dryRun = await parsed.summary;
-    if (runId) {
-      const account = await options.db.account.upsert({
-        where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: options.accountPlatformId } },
-        create: { connectorType: 'self-scrape', platformId: options.accountPlatformId }, update: {},
-      });
-      const details = { source: 'self-scrape', sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines, notesChanged, snapshotsChanged };
-      await options.db.syncJob.create({ data: { externalJobId: runId, accountId: account.id, status: 'succeeded', currentStage: 'complete', startedAt: new Date(), completedAt: new Date(), payload: details } });
-      await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_succeeded', entityType: 'SelfScrapeImportRun', entityId: runId, details } });
-    }
+    const committedFile = await parsed.summary;
+    if (committedFile.sha256 !== dryRun.sha256) throw new Error('input file changed after validation');
+    const account = await options.db.account.upsert({
+      where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: options.accountPlatformId } },
+      create: { connectorType: 'self-scrape', platformId: options.accountPlatformId }, update: {},
+    });
+    const details = { source: 'self-scrape', sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines, notesChanged, snapshotsChanged };
+    await options.db.$transaction(async (tx) => {
+      await tx.syncJob.create({ data: { externalJobId: runId!, accountId: account.id, status: 'succeeded', currentStage: 'complete', startedAt: new Date(), completedAt: new Date(), payload: details } });
+      await tx.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_succeeded', entityType: 'SelfScrapeImportRun', entityId: runId!, details } });
+    });
     return { ...dryRun, runId, notesChanged, snapshotsChanged };
   } catch (error) {
-    if (runId) await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_failed', entityType: 'SelfScrapeImportRun', entityId: runId, details: { code: error instanceof Error ? error.name : 'UnknownError', notesChanged, snapshotsChanged } } }).catch(() => undefined);
+    await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_failed', entityType: 'SelfScrapeImportRun', entityId: runId!, details: { code: error instanceof Error ? error.name : 'UnknownError', sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines, notesChanged, snapshotsChanged } } }).catch(() => undefined);
     throw error;
   }
 }

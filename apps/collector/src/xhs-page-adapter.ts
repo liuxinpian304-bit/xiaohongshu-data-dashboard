@@ -103,8 +103,9 @@ export class XhsPageAdapter {
     const notes = new Map<string, CreatorNoteRecord>();
     const comments = new Map<string, CreatorCommentRecord>();
     const pending = new Set<Promise<void>>();
+    let commentScopeNoteId: string | undefined;
     const listener = (response: XhsResponseSurface) => {
-      const task = this.consumeCreatorResponse(response, capturedAt, notes, comments).finally(() => pending.delete(task));
+      const task = this.consumeCreatorResponse(response, capturedAt, notes, comments, commentScopeNoteId).finally(() => pending.delete(task));
       pending.add(task);
     };
     this.page.on('response', listener);
@@ -118,22 +119,33 @@ export class XhsPageAdapter {
         await this.settleResponses(pending, () => comments.size > 0, 20);
         await this.clickThroughVisiblePages(pending, () => comments.size);
       }
-      return { notes: [...notes.values()], comments: [...comments.values()] };
+      for (const note of notes.values()) {
+        if (!note.navigationUrl) continue;
+        commentScopeNoteId = note.platformId;
+        const before = comments.size;
+        await this.page.goto(note.navigationUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        await this.settleResponses(pending, () => comments.size > before, 40);
+      }
+      commentScopeNoteId = undefined;
+      return {
+        notes: [...notes.values()].map(({ navigationUrl: _navigationUrl, ...note }) => note),
+        comments: [...comments.values()],
+      };
     } finally {
       this.page.off('response', listener);
     }
   }
 
-  private async consumeCreatorResponse(response: XhsResponseSurface, capturedAt: string, notes: Map<string, CreatorNoteRecord>, comments: Map<string, CreatorCommentRecord>) {
+  private async consumeCreatorResponse(response: XhsResponseSurface, capturedAt: string, notes: Map<string, CreatorNoteRecord>, comments: Map<string, CreatorCommentRecord>, defaultNoteId?: string) {
     let url: URL;
     try { url = new URL(response.url()); } catch { return; }
-    if (url.origin !== 'https://creator.xiaohongshu.com') return;
+    if (!['https://creator.xiaohongshu.com', 'https://www.xiaohongshu.com'].includes(url.origin)) return;
     const headers = await response.headers();
     if (!headers['content-type']?.toLowerCase().includes('json')) return;
     const declared = Number(headers['content-length'] ?? 0);
     if (Number.isFinite(declared) && declared > 5_000_000) return;
     try {
-      const parsed = parseCreatorPayload(await response.json(), capturedAt);
+      const parsed = parseCreatorPayload(await response.json(), capturedAt, defaultNoteId);
       for (const note of parsed.notes) notes.set(note.platformId, note);
       for (const comment of parsed.comments) comments.set(comment.platformId, comment);
     } catch { /* Ignore unrelated or structurally unsafe creator responses. */ }

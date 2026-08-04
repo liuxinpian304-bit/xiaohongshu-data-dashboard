@@ -22,11 +22,11 @@ describe('parseCreatorPayload', () => {
       code: 0,
       success: true,
       data: {
-        notes: [{ id: 'note-real-1', display_title: '创作中心标题', time: '1754214400', likes: 9, comments_count: 4, view_count: 88 }],
+        notes: [{ id: 'note-real-1', display_title: '创作中心标题', time: '1754214400', likes: 9, comments_count: 4, view_count: 88, xsec_token: 'temporary-token', xsec_source: 'pc_creator' }],
         page: 1,
       },
     }, '2026-08-04T07:00:00.000Z').notes).toEqual([
-      { platformId: 'note-real-1', title: '创作中心标题', publishedAt: '2025-08-03T09:46:40.000Z', metrics: { views: 88, likes: 9, comments: 4 }, capturedAt: '2026-08-04T07:00:00.000Z' },
+      { platformId: 'note-real-1', title: '创作中心标题', publishedAt: '2025-08-03T09:46:40.000Z', metrics: { views: 88, likes: 9, comments: 4 }, capturedAt: '2026-08-04T07:00:00.000Z', navigationUrl: 'https://www.xiaohongshu.com/explore/note-real-1?xsec_token=temporary-token&xsec_source=pc_creator' },
     ]);
   });
 
@@ -47,6 +47,12 @@ describe('parseCreatorPayload', () => {
       ],
       page: { cursor: null, hasMore: false },
     });
+  });
+
+  it('uses the current detail note as comment scope when comment rows omit note_id', () => {
+    expect(parseCreatorPayload({ data: { comments: [{ id: 'comment-scoped', content: '详情页评论', create_time: 1_754_214_400, like_count: 0 }] } }, '2026-08-04T07:00:00.000Z', 'note-from-page').comments).toEqual([
+      { platformId: 'comment-scoped', noteId: 'note-from-page', parentPlatformId: null, content: '详情页评论', publishedAt: '2025-08-03T09:46:40.000Z', likeCount: 0 },
+    ]);
   });
 
   it('does not mistake unrelated ids or display strings for collectable records', () => {

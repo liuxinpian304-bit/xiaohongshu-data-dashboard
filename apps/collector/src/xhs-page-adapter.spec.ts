@@ -142,6 +142,26 @@ describe('XhsPageAdapter', () => {
     await expect(new XhsPageAdapter(page as any).collectVisibleRecords()).resolves.toMatchObject({ notes: [{ platformId: 'only-note' }] });
     expect(nextClick).toHaveBeenCalledOnce();
   });
+
+  it('opens each owned note through its ephemeral navigation URL and captures scoped comments', async () => {
+    const listeners = new Set<(response: any) => void>();
+    const visited: string[] = [];
+    const noteResponse = { url: () => 'https://creator.xiaohongshu.com/api/notes', headers: () => ({ 'content-type': 'application/json' }), json: async () => ({ data: { notes: [{ id: 'note-comments', display_title: '评论测试', time: '1754214400', likes: 1, comments_count: 1, view_count: 3, xsec_token: 'ephemeral', xsec_source: 'pc_creator' }] } }) };
+    const commentResponse = { url: () => 'https://www.xiaohongshu.com/api/comments', headers: () => ({ 'content-type': 'application/json' }), json: async () => ({ data: { comments: [{ id: 'comment-real', content: '详情评论', create_time: 1_754_214_400, like_count: 2 }], has_more: false } }) };
+    const page = {
+      url: () => 'https://creator.xiaohongshu.com/new/home',
+      locator: (selector: string) => ({ first: () => ({ isVisible: async () => selector === 'text=数据看板', isEnabled: async () => false, screenshot: async () => Buffer.from([]), click: async () => undefined, evaluate: async () => ({ width: 0, height: 0 }) }), all: async () => [] }),
+      on: (_event: 'response', listener: (value: any) => void) => listeners.add(listener), off: (_event: 'response', listener: (value: any) => void) => listeners.delete(listener),
+      goto: async (url: string) => { visited.push(url); const response = url.startsWith('https://www.xiaohongshu.com/') ? commentResponse : noteResponse; for (const listener of listeners) listener(response); },
+      waitForTimeout: async () => undefined,
+    };
+
+    const result = await new XhsPageAdapter(page as any).collectVisibleRecords('2026-08-04T07:00:00.000Z');
+
+    expect(visited).toContain('https://www.xiaohongshu.com/explore/note-comments?xsec_token=ephemeral&xsec_source=pc_creator');
+    expect(result.comments).toEqual([expect.objectContaining({ platformId: 'comment-real', noteId: 'note-comments' })]);
+    expect(JSON.stringify(result.notes)).not.toContain('ephemeral');
+  });
 });
 
 describe('CollectionPager', () => {

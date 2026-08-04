@@ -4,6 +4,7 @@ export interface CreatorNoteRecord {
   publishedAt: string;
   metrics: { views: number | null; likes: number | null; comments: number | null };
   capturedAt: string;
+  navigationUrl?: string;
 }
 export interface CreatorCommentRecord {
   platformId: string;
@@ -22,7 +23,7 @@ export interface CreatorPayloadResult {
 const MAX_PAYLOAD_BYTES = 5_000_000;
 const MAX_DEPTH = 32;
 
-export function parseCreatorPayload(payload: unknown, capturedAt: string): CreatorPayloadResult {
+export function parseCreatorPayload(payload: unknown, capturedAt: string, defaultNoteId?: string): CreatorPayloadResult {
   let encoded: string;
   try { encoded = JSON.stringify(payload); }
   catch { throw new Error('collector_payload_invalid'); }
@@ -39,10 +40,10 @@ export function parseCreatorPayload(payload: unknown, capturedAt: string): Creat
     const hasMore = boolean(value.has_more ?? value.hasMore);
     if (hasMore !== null) page = { cursor: text(value.cursor ?? value.next_cursor ?? value.nextCursor) || null, hasMore };
 
-    const commentId = text(value.comment_id ?? value.commentId);
-    const creatorTitle = text(value.display_title);
-    const noteId = text(value.note_id ?? value.noteId ?? (creatorTitle !== null ? value.id : null));
     const content = text(value.content ?? value.comment_content ?? value.commentContent);
+    const commentId = text(value.comment_id ?? value.commentId ?? (defaultNoteId && content !== null ? value.id : null));
+    const creatorTitle = text(value.display_title);
+    const noteId = text(value.note_id ?? value.noteId ?? (creatorTitle !== null ? value.id : null) ?? defaultNoteId);
     let nestedParent = parentCommentId;
     if (commentId && noteId && content !== null) {
       const publishedAt = time(value.create_time ?? value.createTime ?? value.publish_time ?? value.publishedAt);
@@ -67,6 +68,7 @@ export function parseCreatorPayload(payload: unknown, capturedAt: string): Creat
           comments: count(value.comment_count ?? value.commentCount ?? value.comments_count),
         },
         capturedAt: iso(capturedAt),
+        ...navigation(noteId, value.xsec_token, value.xsec_source),
       });
     }
 
@@ -94,4 +96,11 @@ function time(value: unknown) {
   const milliseconds = value < 10_000_000_000 ? value * 1_000 : value;
   const date = new Date(milliseconds);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function navigation(noteId: string, token: unknown, source: unknown) {
+  const xsecToken = text(token); const xsecSource = text(source);
+  if (!xsecToken || !xsecSource) return {};
+  const query = new URLSearchParams({ xsec_token: xsecToken, xsec_source: xsecSource });
+  return { navigationUrl: `https://www.xiaohongshu.com/explore/${encodeURIComponent(noteId)}?${query.toString()}` };
 }

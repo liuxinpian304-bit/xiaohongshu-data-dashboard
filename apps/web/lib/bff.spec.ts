@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { mutationHeaders, parseAdminSession, parseLoginCookies, readBoundedJson, validateMutationRequest } from './bff';
 
 describe('mutation BFF boundary', () => {
+  it('accepts the default local dashboard origin including its port', () => {
+    expect(() => validateMutationRequest(new Request('http://127.0.0.1:3000/api/control/local-collector/sync', {
+      method: 'POST',
+      headers: { origin: 'http://127.0.0.1:3000', 'sec-fetch-site': 'same-origin' },
+    }))).not.toThrow();
+  });
   it('rejects cross-origin and cross-site mutation requests', () => {
     expect(() => validateMutationRequest(new Request('http://127.0.0.1/api/jobs', { method: 'POST', headers: { origin: 'https://evil.test', 'sec-fetch-site': 'cross-site' } }), 'http://127.0.0.1')).toThrow('origin rejected');
   });

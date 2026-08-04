@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 const apiBase = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
-const appOrigin = process.env.APP_ORIGIN ?? 'http://127.0.0.1';
+const appOrigin = process.env.APP_ORIGIN ?? 'http://127.0.0.1:3000';
 export function webCsrfCookie(value: string, secure: boolean) { return { name: 'web_csrf', value, httpOnly: true, secure, sameSite: 'strict' as const, path: '/' }; }
 export class BffRequestError extends Error { constructor(public status:number,message:string){super(message)} }
 export async function readBoundedJson(request:Request,maxBytes:number,allowed:string[]){const type=request.headers.get('content-type')?.split(';')[0].trim();if(type!=='application/json')throw new BffRequestError(415,'application/json required');const declared=Number(request.headers.get('content-length')??0);if(declared>maxBytes)throw new BffRequestError(413,'request too large');const reader=request.body?.getReader();let total=0;const chunks:Uint8Array[]=[];if(reader)for(;;){const{done,value}=await reader.read();if(done)break;total+=value.byteLength;if(total>maxBytes)throw new BffRequestError(413,'request too large');chunks.push(value)}const text=new TextDecoder().decode(Buffer.concat(chunks));let value:unknown;try{value=text?JSON.parse(text):{}}catch{throw new BffRequestError(400,'invalid json')}if(!value||typeof value!=='object'||Array.isArray(value))throw new BffRequestError(400,'object required');if(Object.keys(value).some(k=>!allowed.includes(k)))throw new BffRequestError(400,'unknown field');return value as Record<string,unknown>}

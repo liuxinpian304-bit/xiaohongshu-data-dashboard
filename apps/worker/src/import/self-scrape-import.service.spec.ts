@@ -31,12 +31,13 @@ describe('importSelfScrapeFile', () => {
 
     const summary = await importSelfScrapeFile({ file, accountPlatformId: 'my-own-account', commit: true, db: prisma });
 
-    expect(summary).toMatchObject({ validLines: 1, invalidLines: 0, notesChanged: 1, snapshotsChanged: 3 });
+    expect(summary).toMatchObject({ runId: expect.stringMatching(/^self-scrape-import-/), validLines: 1, invalidLines: 0, notesChanged: 1, snapshotsChanged: 3 });
     const account = await prisma.account.findUniqueOrThrow({ where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: 'my-own-account' } } });
     expect(await prisma.note.count({ where: { accountId: account.id, connectorType: 'self-scrape' } })).toBe(1);
     expect(await prisma.metricDefinition.count({ where: { source: 'self-scrape', version: 'jsonl-v1' } })).toBe(3);
     expect(await prisma.metricSnapshot.count({ where: { source: 'self-scrape', authoritativePeriod: false } })).toBe(3);
     expect(await prisma.metricSnapshot.findFirstOrThrow({ where: { source: 'self-scrape', metricDefinition: { key: 'views' } } })).toMatchObject({ availability: 'not_provided', value: null });
+    expect(await prisma.syncJob.findUniqueOrThrow({ where: { externalJobId: summary.runId! } })).toMatchObject({ accountId: account.id, status: 'succeeded', currentStage: 'complete', payload: expect.objectContaining({ source: 'self-scrape', sha256: summary.sha256, validLines: 1, invalidLines: 0 }) });
   });
 
   it('replays equal observations as no-ops and appends revisions for changed values', async () => {

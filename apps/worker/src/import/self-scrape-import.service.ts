@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 
 import type { DatabaseClient } from '@xhs/database';
@@ -12,6 +12,7 @@ export interface SelfScrapeImportOptions {
 }
 
 export interface SelfScrapeImportSummary {
+  runId: string | null;
   sha256: string;
   totalBytes: number;
   validLines: number;
@@ -26,21 +27,32 @@ const definitions = [
 
 export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Promise<SelfScrapeImportSummary> {
   const parsed = parseSelfScrapeJsonl(createReadStream(options.file));
+  const runId = options.commit ? `self-scrape-import-${randomUUID()}` : null;
   let notesChanged = 0;
   let snapshotsChanged = 0;
 
   for await (const entry of parsed.entries) {
     if (!entry.ok || !options.commit) continue;
-    const result = await commitRecord(options.db, options.accountPlatformId, entry.record);
+    const result = await commitRecord(options.db, options.accountPlatformId, entry.record, runId!);
     notesChanged += result.noteChanged ? 1 : 0;
     snapshotsChanged += result.snapshotsChanged;
   }
 
   const dryRun = await parsed.summary;
-  return { ...dryRun, notesChanged, snapshotsChanged };
+  if (runId) {
+    const account = await options.db.account.upsert({
+      where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: options.accountPlatformId } },
+      create: { connectorType: 'self-scrape', platformId: options.accountPlatformId }, update: {},
+    });
+    await options.db.syncJob.create({ data: {
+      externalJobId: runId, accountId: account.id, status: 'succeeded', currentStage: 'complete', startedAt: new Date(), completedAt: new Date(),
+      payload: { source: 'self-scrape', sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines, notesChanged, snapshotsChanged },
+    } });
+  }
+  return { ...dryRun, runId, notesChanged, snapshotsChanged };
 }
 
-async function commitRecord(db: DatabaseClient, accountPlatformId: string, record: NormalizedSelfScrapeRecord) {
+async function commitRecord(db: DatabaseClient, accountPlatformId: string, record: NormalizedSelfScrapeRecord, runId: string) {
   return db.$transaction(async (tx) => {
     const account = await tx.account.upsert({
       where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: accountPlatformId } },
@@ -71,10 +83,10 @@ async function commitRecord(db: DatabaseClient, accountPlatformId: string, recor
       if (existing) {
         const correctedAt = new Date();
         await tx.$executeRaw`SELECT supersede_metric_snapshot(${existing.id}::uuid, ${correctedAt}::timestamptz)`;
-        await tx.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: metric.availability, value: metric.value, capturedAt, observedAt: capturedAt, source: 'self-scrape', aggregation: 'cumulative_delta', aggregationVersion: 'jsonl-v1', authoritativePeriod: false, revision: existing.revision + 1, supersedesId: existing.id, correctedAt, correctionReason: 'changed_self_scrape_observation' } });
+        await tx.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: metric.availability, value: metric.value, capturedAt, observedAt: capturedAt, source: 'self-scrape', aggregation: 'cumulative_delta', aggregationVersion: 'jsonl-v1', authoritativePeriod: false, revision: existing.revision + 1, supersedesId: existing.id, correctedAt, correctionReason: 'changed_self_scrape_observation', sourceRunId: runId } });
         changedRevisions.push(`${key}:${existing.revision + 1}`);
       } else {
-        await tx.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: metric.availability, value: metric.value, capturedAt, observedAt: capturedAt, source: 'self-scrape', aggregation: 'cumulative_delta', aggregationVersion: 'jsonl-v1', authoritativePeriod: false } });
+        await tx.metricSnapshot.create({ data: { noteId: note.id, metricDefinitionId: definition.id, availability: metric.availability, value: metric.value, capturedAt, observedAt: capturedAt, source: 'self-scrape', aggregation: 'cumulative_delta', aggregationVersion: 'jsonl-v1', authoritativePeriod: false, sourceRunId: runId } });
         changedRevisions.push(`${key}:1`);
       }
       snapshotsChanged += 1;

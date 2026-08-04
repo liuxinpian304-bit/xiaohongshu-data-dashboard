@@ -43,4 +43,20 @@ describe('LocalXhsSessionManager', () => {
     expect(JSON.stringify(manager.status())).not.toContain('secret browser path');
     await expect(manager.start()).resolves.toMatchObject({ state: 'browser_open' });
   });
+
+  it('waits for an in-flight launch and closes the resulting browser', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
+    let finishLaunch!: (handle: { close(): Promise<void> }) => void;
+    const close = vi.fn(async () => undefined);
+    const launch = vi.fn(() => new Promise<{ close(): Promise<void> }>((resolve) => { finishLaunch = resolve; }));
+    const manager = new LocalXhsSessionManager({ profileDirectory: join(root, 'profile'), launch });
+    const starting = manager.start();
+    await vi.waitFor(() => expect(launch).toHaveBeenCalledOnce());
+    const closing = manager.close();
+    finishLaunch({ close });
+    await starting;
+    await expect(closing).resolves.toMatchObject({ state: 'closed' });
+    expect(close).toHaveBeenCalledOnce();
+    expect(manager.status()).toMatchObject({ state: 'closed' });
+  });
 });

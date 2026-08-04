@@ -36,6 +36,8 @@ export class LocalXhsSessionManager {
   }
 
   async close() {
+    const pending = this.launching;
+    if (pending) await pending.catch(() => undefined);
     const handle = this.handle;
     this.handle = null;
     if (handle) await handle.close();
@@ -62,7 +64,12 @@ export class LocalXhsSessionManager {
 
 async function launchPersistentChromium(options: LaunchOptions): Promise<BrowserHandle> {
   const context = await chromium.launchPersistentContext(options.profileDirectory, { headless: options.headless, channel: process.env.LOCAL_XHS_BROWSER_CHANNEL ?? 'chrome' });
-  const page = context.pages()[0] ?? await context.newPage();
-  await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-  return { close: () => context.close() };
+  try {
+    const page = context.pages()[0] ?? await context.newPage();
+    await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    return { close: () => context.close() };
+  } catch (error) {
+    await context.close().catch(() => undefined);
+    throw error;
+  }
 }

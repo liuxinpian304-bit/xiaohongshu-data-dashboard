@@ -40,5 +40,6 @@ function isCollectorStatus(value: unknown): value is CollectorStatus {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
   if (Object.keys(body).some((key) => !['state', 'changedAt', 'errorCode'].includes(key))) return false;
-  return typeof body.changedAt === 'string' && ['idle', 'launching', 'browser_open', 'user_confirmed', 'closed', 'error'].includes(String(body.state)) && (body.errorCode === undefined || typeof body.errorCode === 'string');
+  const changedAt = typeof body.changedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(body.changedAt) && Number.isFinite(new Date(body.changedAt).getTime());
+  return changedAt && ['idle', 'launching', 'browser_open', 'user_confirmed', 'closed', 'error'].includes(String(body.state)) && (body.errorCode === undefined || body.errorCode === 'collector_launch_failed');
 }

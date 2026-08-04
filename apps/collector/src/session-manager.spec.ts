@@ -73,10 +73,15 @@ describe('LocalXhsSessionManager', () => {
       close,
       page: {
         url: () => 'https://creator.xiaohongshu.com/login',
-        locator: (selector: string) => ({ first: () => ({
-          isVisible: async () => selector === '[class*="qrcode"] canvas',
-          screenshot: async () => pngFixture(320, 320),
-        }) }),
+        locator: (selector: string) => ({
+          first: () => ({
+            isVisible: async () => selector === '[class*="qrcode"] canvas',
+            screenshot: async () => pngFixture(320, 320),
+            click: async () => undefined,
+            evaluate: async <TResult,>(fn: (element: { clientWidth: number; clientHeight: number }) => TResult) => fn({ clientWidth: 0, clientHeight: 0 }),
+          }),
+          all: async () => [],
+        }),
       },
     }));
     const manager = new LocalXhsSessionManager({ profileDirectory: join(root, 'profile'), launch });

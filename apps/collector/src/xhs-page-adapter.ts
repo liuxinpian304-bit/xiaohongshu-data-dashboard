@@ -1,11 +1,15 @@
 export type DetectedLoginState = 'loading' | 'awaiting_scan' | 'authenticated' | 'verification_required';
+interface XhsElementSurface {
+  isVisible(): Promise<boolean>;
+  screenshot(options: { type: 'png' }): Promise<Buffer>;
+  click(): Promise<void>;
+  evaluate<TResult>(fn: (element: { clientWidth: number; clientHeight: number }) => TResult): Promise<TResult>;
+}
 export interface XhsPageSurface {
   url(): string;
   locator(selector: string): {
-    first(): {
-      isVisible(): Promise<boolean>;
-      screenshot(options: { type: 'png' }): Promise<Buffer>;
-    };
+    first(): XhsElementSurface;
+    all(): Promise<XhsElementSurface[]>;
   };
 }
 
@@ -29,7 +33,24 @@ const qrSelectors = [
 ] as const;
 
 export class XhsPageAdapter {
+  private qrModeRequested = false;
+
   constructor(private readonly page: XhsPageSurface) {}
+
+  async prepareLogin() {
+    if (new URL(this.page.url()).pathname !== '/login') return;
+    if (await this.qrImage()) { this.qrModeRequested = true; return; }
+    if (this.qrModeRequested) return;
+    const toggles = await this.page.locator('.sso-login-wrapper img').all();
+    for (const toggle of toggles) {
+      const dimensions = await toggle.evaluate((element) => ({ width: element.clientWidth, height: element.clientHeight }));
+      if (dimensions.width >= 40 && dimensions.width <= 96 && dimensions.width === dimensions.height && await toggle.isVisible()) {
+        await toggle.click();
+        this.qrModeRequested = true;
+        return;
+      }
+    }
+  }
 
   async detectLoginState(): Promise<DetectedLoginState> {
     if (await this.anyVisible(verificationSelectors)) return 'verification_required';
@@ -37,16 +58,28 @@ export class XhsPageAdapter {
     if (url.origin === 'https://creator.xiaohongshu.com' && !url.pathname.startsWith('/login') && await this.anyVisible(authenticatedSelectors)) {
       return 'authenticated';
     }
-    if (await this.anyVisible(qrSelectors)) return 'awaiting_scan';
+    if (await this.qrImage() || await this.anyVisible(qrSelectors)) return 'awaiting_scan';
     return 'loading';
   }
 
   async captureQr(): Promise<Buffer> {
+    const qr = await this.qrImage();
+    if (qr) return qr.screenshot({ type: 'png' });
     for (const selector of qrSelectors) {
       const element = this.page.locator(selector).first();
       if (await element.isVisible()) return element.screenshot({ type: 'png' });
     }
     throw new Error('collector_qr_not_found');
+  }
+
+  private async qrImage() {
+    const images = await this.page.locator('.sso-login-wrapper img[src^="data:image/png"]').all();
+    for (const image of images) {
+      if (!await image.isVisible()) continue;
+      const dimensions = await image.evaluate((element) => ({ width: element.clientWidth, height: element.clientHeight }));
+      if (dimensions.width >= 128 && dimensions.width <= 512 && dimensions.width === dimensions.height) return image;
+    }
+    return null;
   }
 
   private async anyVisible(selectors: readonly string[]) {

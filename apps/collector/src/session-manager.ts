@@ -10,6 +10,7 @@ export interface QrSnapshot { bytes: Buffer; contentType: 'image/png'; expiresAt
 interface BrowserHandle { close(): Promise<void>; page?: XhsPageSurface }
 interface LaunchOptions { profileDirectory: string; headless: false; url: string }
 interface PageAdapter {
+  prepareLogin?(): Promise<void>;
   detectLoginState(): Promise<'loading' | 'awaiting_scan' | 'authenticated' | 'verification_required'>;
   captureQr(): Promise<Buffer>;
 }
@@ -35,6 +36,7 @@ export class LocalXhsSessionManager {
 
   async refresh() {
     if (!this.adapter) return this.status();
+    await this.adapter.prepareLogin?.();
     const state = await this.adapter.detectLoginState();
     if (state === 'loading') {
       this.setState('launching');

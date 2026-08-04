@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { XhsPageAdapter } from './xhs-page-adapter';
+import { CollectionPager, XhsPageAdapter } from './xhs-page-adapter';
 
 describe('XhsPageAdapter', () => {
   it('recognizes an authenticated creator page from visible creator navigation', async () => {
@@ -70,6 +70,24 @@ describe('XhsPageAdapter', () => {
     });
 
     await expect(new XhsPageAdapter(page as any).captureQr()).resolves.toEqual(qr);
+  });
+});
+
+describe('CollectionPager', () => {
+  it('finishes only when the platform explicitly reports no next page', () => {
+    const pager = new CollectionPager();
+    expect(pager.next({ cursor: 'page-1', hasMore: false })).toEqual({ done: true });
+  });
+
+  it('rejects a repeated cursor instead of silently marking comments complete', () => {
+    const pager = new CollectionPager();
+    expect(pager.next({ cursor: 'page-1', hasMore: true })).toEqual({ done: false, cursor: 'page-1' });
+    expect(() => pager.next({ cursor: 'page-1', hasMore: true })).toThrowError('collector_repeated_cursor');
+  });
+
+  it('rejects a missing cursor while the platform claims more pages exist', () => {
+    const pager = new CollectionPager();
+    expect(() => pager.next({ cursor: null, hasMore: true })).toThrowError('collector_page_changed');
   });
 });
 

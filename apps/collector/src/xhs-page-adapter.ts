@@ -13,6 +13,18 @@ export interface XhsPageSurface {
   };
 }
 
+export class CollectionPager {
+  private readonly seen = new Set<string>();
+
+  next(page: { cursor: string | null; hasMore: boolean }): { done: true } | { done: false; cursor: string } {
+    if (!page.hasMore) return { done: true };
+    if (!page.cursor) throw new Error('collector_page_changed');
+    if (this.seen.has(page.cursor)) throw new Error('collector_repeated_cursor');
+    this.seen.add(page.cursor);
+    return { done: false, cursor: page.cursor };
+  }
+}
+
 const verificationSelectors = [
   'text=安全验证',
   'text=短信验证',

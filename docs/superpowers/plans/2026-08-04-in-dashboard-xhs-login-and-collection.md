@@ -69,7 +69,7 @@ it('expires and destroys the QR snapshot', async () => {
 
 - [ ] **Step 2: 运行测试并确认失败**
 
-Run: `pnpm --filter @xhs/collector test -- session-manager.spec.ts xhs-page-adapter.spec.ts`
+Run: `pnpm --filter collector test -- session-manager.spec.ts xhs-page-adapter.spec.ts`
 Expected: FAIL，缺少 `refresh`、`qr` 和 `XhsPageAdapter`。
 
 - [ ] **Step 3: 实现最小状态机与页面适配器**
@@ -95,7 +95,7 @@ export interface QrSnapshot {
 
 - [ ] **Step 4: 运行 Collector 单测**
 
-Run: `pnpm --filter @xhs/collector test -- session-manager.spec.ts xhs-page-adapter.spec.ts`
+Run: `pnpm --filter collector test -- session-manager.spec.ts xhs-page-adapter.spec.ts`
 Expected: PASS；测试断言二维码过期、并发 start 幂等、验证状态与 profile `0700`。
 
 - [ ] **Step 5: 提交并推送**
@@ -135,7 +135,7 @@ expect(await call(port, 'POST', '/v1/collection/start', token)).toMatchObject({
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @xhs/collector test -- server.spec.ts collection-run.spec.ts`
+Run: `pnpm --filter collector test -- server.spec.ts collection-run.spec.ts`
 Expected: FAIL，二维码、refresh 和 collection 路由尚不存在。
 
 - [ ] **Step 3: 实现固定允许列表路由和单运行器**
@@ -144,7 +144,7 @@ JSON 响应继续使用固定字段校验；PNG 路由覆盖默认 JSON content-
 
 - [ ] **Step 4: 运行 Collector 全套测试与类型检查**
 
-Run: `pnpm --filter @xhs/collector test && pnpm --filter @xhs/collector typecheck`
+Run: `pnpm --filter collector test && pnpm --filter collector typecheck`
 Expected: 全部 PASS。
 
 - [ ] **Step 5: 提交并推送**
@@ -183,7 +183,7 @@ it.each([
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @xhs/api test -- local-collector.service.spec.ts local-collector.controller.spec.ts`
+Run: `pnpm --filter api test -- local-collector.service.spec.ts local-collector.controller.spec.ts`
 Expected: FAIL，`qr`、新动作和控制器 PNG 响应未实现。
 
 - [ ] **Step 3: 实现 API 服务与控制器**
@@ -192,7 +192,7 @@ Expected: FAIL，`qr`、新动作和控制器 PNG 响应未实现。
 
 - [ ] **Step 4: 运行 API 全套测试与类型检查**
 
-Run: `pnpm --filter @xhs/api test && pnpm --filter @xhs/api test:e2e && pnpm --filter @xhs/api typecheck`
+Run: `pnpm --filter api test && pnpm --filter api test:e2e && pnpm --filter api typecheck`
 Expected: 全部 PASS，旧 auth/dashboard e2e 不回归。
 
 - [ ] **Step 5: 提交并推送**
@@ -233,7 +233,7 @@ expect(screen.queryByRole('button', { name: '我已扫码完成' })).not.toBeInT
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @xhs/web test -- self-import-login.spec.tsx qr/route.spec.ts`
+Run: `pnpm --filter web test -- self-import-login.spec.tsx qr/route.spec.ts`
 Expected: FAIL，页面仍打开外部 Chrome 且存在人工确认按钮。
 
 - [ ] **Step 3: 实现同源 PNG BFF 与响应式 UI**
@@ -242,7 +242,7 @@ Expected: FAIL，页面仍打开外部 Chrome 且存在人工确认按钮。
 
 - [ ] **Step 4: 运行 Web 测试、类型检查与构建**
 
-Run: `pnpm --filter @xhs/web test && pnpm --filter @xhs/web typecheck && pnpm --filter @xhs/web build`
+Run: `pnpm --filter web test && pnpm --filter web typecheck && pnpm --filter web build`
 Expected: 全部 PASS；手机宽度 390px 不横向溢出。
 
 - [ ] **Step 5: 提交并推送**
@@ -283,7 +283,7 @@ expect(() => pager.next({ cursor: 'a', hasMore: true })).toThrow('repeated_curso
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @xhs/self-scrape-import test && pnpm --filter @xhs/collector test -- xhs-page-adapter.spec.ts collection-run.spec.ts`
+Run: `pnpm --filter @xhs/self-scrape-import test && pnpm --filter collector test -- xhs-page-adapter.spec.ts collection-run.spec.ts`
 Expected: FAIL，采集事件合同和分页保护不存在。
 
 - [ ] **Step 3: 实现严格合同与采集遍历**
@@ -292,7 +292,7 @@ Expected: FAIL，采集事件合同和分页保护不存在。
 
 - [ ] **Step 4: 运行合同、Collector 测试和类型检查**
 
-Run: `pnpm --filter @xhs/self-scrape-import test && pnpm --filter @xhs/self-scrape-import typecheck && pnpm --filter @xhs/collector test && pnpm --filter @xhs/collector typecheck`
+Run: `pnpm --filter @xhs/self-scrape-import test && pnpm --filter @xhs/self-scrape-import typecheck && pnpm --filter collector test && pnpm --filter collector typecheck`
 Expected: 全部 PASS；fixture 覆盖回复分页、重复游标、结构变化、验证中断和空评论终点。
 
 - [ ] **Step 5: 提交并推送**
@@ -331,7 +331,7 @@ expect(await db.comment.findMany({ orderBy: { platformId: 'asc' } })).toMatchObj
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @xhs/worker test -- self-scrape-collection.service.spec.ts self-scrape-import.service.spec.ts`
+Run: `pnpm --filter worker test -- self-scrape-collection.service.spec.ts self-scrape-import.service.spec.ts`
 Expected: FAIL，新服务不存在。
 
 - [ ] **Step 3: 提取并复用现有提交语义**
@@ -340,7 +340,7 @@ Expected: FAIL，新服务不存在。
 
 - [ ] **Step 4: 运行 Worker 单测与数据库集成测试**
 
-Run: `pnpm --filter @xhs/worker test && pnpm --filter @xhs/database test && pnpm --filter @xhs/worker typecheck`
+Run: `pnpm --filter worker test && pnpm --filter @xhs/database test && pnpm --filter worker typecheck`
 Expected: 全部 PASS；重跑 no-op、指标变化追加 revision、评论变化更新、partial 不冒充 complete。
 
 - [ ] **Step 5: 提交并推送**
@@ -383,7 +383,7 @@ expect(publisher.publish).toHaveBeenCalledWith(expect.objectContaining({ type: '
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @xhs/worker test -- self-scrape-sync.service.spec.ts self-scrape-sync.processor.spec.ts event-producers.spec.ts`
+Run: `pnpm --filter worker test -- self-scrape-sync.service.spec.ts self-scrape-sync.processor.spec.ts event-producers.spec.ts`
 Expected: FAIL，self-scrape 同步处理器尚不存在。
 
 - [ ] **Step 3: 实现本月已结束日期补采与后续处理**
@@ -392,7 +392,7 @@ Expected: FAIL，self-scrape 同步处理器尚不存在。
 
 - [ ] **Step 4: 运行 Worker/API 回归测试**
 
-Run: `pnpm --filter @xhs/worker test && pnpm --filter @xhs/api test && pnpm --filter @xhs/worker typecheck && pnpm --filter @xhs/api typecheck`
+Run: `pnpm --filter worker test && pnpm --filter api test && pnpm --filter worker typecheck && pnpm --filter api typecheck`
 Expected: 全部 PASS；既有 official rolling scheduler 测试不变。
 
 - [ ] **Step 5: 提交并推送**
@@ -431,7 +431,7 @@ it('starts login, proxies a no-store QR, authenticates and starts one sync', asy
 
 - [ ] **Step 2: 运行并确认失败**
 
-Run: `pnpm --filter @xhs/api test:e2e -- local-collector.e2e-spec.ts`
+Run: `pnpm --filter api test:e2e -- local-collector.e2e-spec.ts`
 Expected: FAIL，测试 fixture 和完整 E2E 断言尚未就绪。
 
 - [ ] **Step 3: 完成运行说明与安全 fixture**

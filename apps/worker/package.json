@@ -6,7 +6,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests --no-file-parallelism",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "import:self-scrape": "tsx src/import/self-scrape-import.cli.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

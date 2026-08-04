@@ -117,6 +117,20 @@ describe('reportJobsForTick', () => {
     expect(await store.findAffectedReports({ backfillId: 'mock-event', accountId: 'account-1', noteId: 'note', capturedDates: ['2026-08-01'], reason: 'metric_snapshot_saved', source: 'mock' })).toEqual([]);
   });
 
+  it('lets a self-scrape backfill rebuild only reports owned by its self-scrape account', async () => {
+    const store = new PrismaAffectedReportStore({
+      account: { findUnique: async () => ({ connectorType: 'self-scrape' }) },
+      report: { findMany: async () => [{
+        id: 'self-daily', accountId: 'self-account', reportType: 'daily', periodStart: new Date('2026-07-31T16:00:00Z'),
+        periodEnd: new Date('2026-08-01T15:59:59.999Z'), version: 1, status: 'complete', missingDates: [],
+      }] },
+    } as never);
+    expect(await store.findAffectedReports({
+      backfillId: 'self-event', accountId: 'self-account', noteId: 'note', capturedDates: ['2026-08-01'],
+      reason: 'self_scrape_observation_committed', source: 'self-scrape',
+    })).toEqual([expect.objectContaining({ id: 'self-daily', accountId: 'self-account', type: 'daily' })]);
+  });
+
   it.each(['self_import', 'legacy', undefined])('fails closed for %s backfill events even when a report awaits that day', async (source) => {
     const store = new PrismaAffectedReportStore({ report: { findMany: async () => [{
       id: 'awaiting-daily', accountId: 'account-1', reportType: 'daily', periodStart: new Date('2026-07-31T16:00:00Z'),

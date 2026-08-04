@@ -9,7 +9,7 @@ export interface CollectorQr { bytes: Buffer; etag: string; expires: string }
 export interface CollectorCollectionStatus { runId: string | null; state: 'idle' | 'running' | 'completed' | 'failed'; stage: 'account' | 'notes' | 'metrics' | 'comments' | 'replies' | 'writing' | 'reports' | 'complete'; processed: number; total: number; incompleteNotes: number; changedAt: string; errorCode?: 'collector_collection_failed' }
 interface ImportOptions { db: DatabaseClient; runId: string; accountPlatformId: string }
 interface ImportSummary { accountId: string; notesChanged: number; snapshotsChanged: number; commentsChanged: number; incompleteNotes: number; sha256: string }
-interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; importer?: (events: Iterable<unknown>, options: ImportOptions) => Promise<ImportSummary>; db?: DatabaseClient; sleep?: (milliseconds: number) => Promise<void>; accountPlatformId?: string }
+interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; importer?: (events: Iterable<unknown>, options: ImportOptions) => Promise<ImportSummary>; recorder?: (runId: string, summary: ImportSummary) => Promise<void>; db?: DatabaseClient; sleep?: (milliseconds: number) => Promise<void>; accountPlatformId?: string }
 
 @Injectable()
 export class LocalCollectorService {
@@ -97,7 +97,8 @@ export class LocalCollectorService {
       if (status?.state !== 'completed') throw new Error('collector_collection_timeout');
       const events = await this.events(runId);
       const importer = this.configuration.importer ?? importSelfScrapeCollection;
-      await importer(events, { db: this.configuration.db ?? prisma, runId, accountPlatformId: this.configuration.accountPlatformId ?? process.env.LOCAL_XHS_ACCOUNT_PLATFORM_ID ?? 'local-creator' });
+      const summary = await importer(events, { db: this.configuration.db ?? prisma, runId, accountPlatformId: this.configuration.accountPlatformId ?? process.env.LOCAL_XHS_ACCOUNT_PLATFORM_ID ?? 'local-creator' });
+      await (this.configuration.recorder ?? ((id, value) => recordImport(this.configuration.db ?? prisma, id, value)))(runId, summary);
       this.imports.set(runId, 'completed');
     } catch {
       this.imports.set(runId, 'failed');
@@ -166,6 +167,16 @@ async function readBoundedBytes(response: Response, maxBytes: number, code: stri
 }
 
 function delay(milliseconds: number) { return new Promise<void>((resolve) => setTimeout(resolve, milliseconds)); }
+
+async function recordImport(db: DatabaseClient, runId: string, summary: ImportSummary) {
+  const now = new Date();
+  const payload = { source: 'self-scrape', notesChanged: summary.notesChanged, snapshotsChanged: summary.snapshotsChanged, commentsChanged: summary.commentsChanged, incompleteNotes: summary.incompleteNotes, sha256: summary.sha256 };
+  await db.$transaction(async (tx) => {
+    await tx.syncJob.upsert({ where: { externalJobId: runId }, create: { externalJobId: runId, accountId: summary.accountId, status: 'succeeded', currentStage: 'complete', startedAt: now, completedAt: now, payload }, update: { status: 'succeeded', currentStage: 'complete', completedAt: now, error: null, payload } });
+    await tx.notification.upsert({ where: { eventId: `self-scrape-sync:${runId}` }, create: { eventId: `self-scrape-sync:${runId}`, accountId: summary.accountId, type: 'sync_completed', title: '小红书数据同步完成', body: `已同步 ${summary.notesChanged} 条笔记变更、${summary.commentsChanged} 条评论变更`, link: '/dashboard' }, update: {} });
+    await tx.auditLog.create({ data: { actor: 'local-collector', action: 'self_scrape.sync_succeeded', entityType: 'SelfScrapeCollectionRun', entityId: runId, details: payload } });
+  });
+}
 
 function validQrPng(bytes: Buffer) {
   if (bytes.byteLength < 24 || !bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return false;

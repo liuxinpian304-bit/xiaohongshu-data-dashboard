@@ -24,4 +24,16 @@ describe('collectCreatorEvents', () => {
     ]);
     expect(progress).toHaveBeenLastCalledWith({ stage: 'reports', processed: 1, total: 1, incompleteNotes: 1 });
   });
+
+  it('marks a platform-declared zero-comment note complete', async () => {
+    const events: any[] = [];
+    const progress = vi.fn();
+    await collectCreatorEvents({ collectVisibleRecords: async () => ({
+      notes: [{ platformId: 'note-empty', title: '', publishedAt: '2026-08-03T02:00:00.000Z', capturedAt: '2026-08-04T07:00:00.000Z', metrics: { views: 4, likes: 0, comments: 0 } }],
+      comments: [],
+    }) }, progress, (event) => events.push(event), 'run-empty', '2026-08-04T07:00:00.000Z');
+
+    expect(events).toContainEqual(expect.objectContaining({ type: 'completeness', noteId: 'note-empty', status: 'page_complete', reason: 'platform_end' }));
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ incompleteNotes: 0 }));
+  });
 });

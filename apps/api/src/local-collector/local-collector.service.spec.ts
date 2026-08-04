@@ -1,10 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { LocalCollectorService } from './local-collector.service';
+import { bindCollectorIdentity, LocalCollectorService } from './local-collector.service';
 
 const token = 'b'.repeat(48);
 
 describe('LocalCollectorService', () => {
+  it('upgrades the legacy placeholder account in place so historical ownership is preserved', async () => {
+    const accounts = new Map([
+      ['local-creator', { id: '00000000-0000-4000-8000-000000000010', connectorType: 'self-scrape', platformId: 'local-creator', displayName: null }],
+    ]);
+    const transaction = {
+      account: {
+        findUnique: async ({ where }: any) => accounts.get(where.connectorType_platformId.platformId) ?? null,
+        update: async ({ where, data }: any) => {
+          const previous = [...accounts.values()].find((account) => account.id === where.id)!;
+          accounts.delete(previous.platformId);
+          const updated = { ...previous, ...data };
+          accounts.set(updated.platformId, updated);
+          return updated;
+        },
+        create: async () => { throw new Error('must not create a second account'); },
+      },
+    };
+    const db = { $transaction: async (callback: (tx: any) => Promise<unknown>) => callback(transaction) } as any;
+
+    const account = await bindCollectorIdentity(db, { platformId: 'stable-user-1', xhsAccountId: 'red_123', displayName: '真实昵称', avatarUrl: null }, '2026-08-04T00:00:00.000Z');
+
+    expect(account).toMatchObject({ id: '00000000-0000-4000-8000-000000000010', platformId: 'stable-user-1', displayName: '真实昵称' });
+    expect(accounts.has('local-creator')).toBe(false);
+    expect(accounts.size).toBe(1);
+  });
+
   it('fails closed when disabled, tokenless, or configured off loopback without stopping API construction', async () => {
     await expect(new LocalCollectorService({ enabled: false, url: 'http://127.0.0.1:43127', token }).action('status')).rejects.toThrow('collector_disabled');
     await expect(new LocalCollectorService({ enabled: true, url: 'http://localhost:43127', token }).action('status')).rejects.toThrow('collector_loopback_required');

@@ -29,7 +29,7 @@ export class LocalCollectorService {
   async startSync() {
     const session = await this.action('status');
     if (session.state !== 'authenticated' || !session.identity || !session.identityVerifiedAt) throw new ServiceUnavailableException('collector_identity_unavailable');
-    await (this.configuration.bindIdentity ?? ((identity, verifiedAt) => bindIdentity(this.configuration.db ?? prisma, identity, verifiedAt)))(session.identity, session.identityVerifiedAt);
+    await (this.configuration.bindIdentity ?? ((identity, verifiedAt) => bindCollectorIdentity(this.configuration.db ?? prisma, identity, verifiedAt)))(session.identity, session.identityVerifiedAt);
     const status = await this.action('sync');
     if (status.runId && this.imports.get(status.runId) !== 'running') {
       this.runPlatformIds.set(status.runId, session.identity.platformId);
@@ -201,11 +201,16 @@ async function recordImport(db: DatabaseClient, runId: string, summary: ImportSu
   });
 }
 
-async function bindIdentity(db: DatabaseClient, identity: CollectorIdentity, verifiedAt: string) {
-  await db.account.upsert({
-    where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: identity.platformId } },
-    create: { connectorType: 'self-scrape', platformId: identity.platformId, xhsAccountId: identity.xhsAccountId, displayName: identity.displayName, avatarUrl: identity.avatarUrl, identityVerifiedAt: new Date(verifiedAt) },
-    update: { xhsAccountId: identity.xhsAccountId, displayName: identity.displayName, avatarUrl: identity.avatarUrl, identityVerifiedAt: new Date(verifiedAt) },
+export async function bindCollectorIdentity(db: DatabaseClient, identity: CollectorIdentity, verifiedAt: string) {
+  const data = { xhsAccountId: identity.xhsAccountId, displayName: identity.displayName, avatarUrl: identity.avatarUrl, identityVerifiedAt: new Date(verifiedAt) };
+  return db.$transaction(async (tx) => {
+    const existing = await tx.account.findUnique({ where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: identity.platformId } } });
+    if (existing) return tx.account.update({ where: { id: existing.id }, data });
+    const placeholder = await tx.account.findUnique({ where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: 'local-creator' } } });
+    if (placeholder) return tx.account.update({ where: { id: placeholder.id }, data: { ...data, platformId: identity.platformId } });
+    return tx.account.create({
+      data: { connectorType: 'self-scrape', platformId: identity.platformId, ...data },
+    });
   });
 }
 

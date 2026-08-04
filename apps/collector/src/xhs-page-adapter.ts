@@ -119,14 +119,23 @@ export class XhsPageAdapter {
         await this.settleResponses(pending, () => comments.size > 0, 20);
         await this.clickThroughVisiblePages(pending, () => comments.size);
       }
-      for (const note of notes.values()) {
-        if (!note.navigationUrl) continue;
-        commentScopeNoteId = note.platformId;
-        const before = comments.size;
-        await this.page.goto(note.navigationUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-        await this.settleResponses(pending, () => comments.size > before, 40);
+      let visitedNoteDetail = false;
+      try {
+        for (const note of notes.values()) {
+          if (!note.navigationUrl) continue;
+          visitedNoteDetail = true;
+          commentScopeNoteId = note.platformId;
+          const before = comments.size;
+          await this.page.goto(note.navigationUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+          await this.settleResponses(pending, () => comments.size > before, 40);
+        }
+      } finally {
+        commentScopeNoteId = undefined;
+        if (visitedNoteDetail) {
+          await this.page.goto('https://creator.xiaohongshu.com/new/note-manager', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+          await this.page.waitForTimeout?.(1_000);
+        }
       }
-      commentScopeNoteId = undefined;
       return {
         notes: [...notes.values()].map(({ navigationUrl: _navigationUrl, ...note }) => note),
         comments: [...comments.values()],

@@ -159,6 +159,7 @@ describe('XhsPageAdapter', () => {
     const result = await new XhsPageAdapter(page as any).collectVisibleRecords('2026-08-04T07:00:00.000Z');
 
     expect(visited).toContain('https://www.xiaohongshu.com/explore/note-comments?xsec_token=ephemeral&xsec_source=pc_creator');
+    expect(visited.at(-1)).toBe('https://creator.xiaohongshu.com/new/note-manager');
     expect(result.comments).toEqual([expect.objectContaining({ platformId: 'comment-real', noteId: 'note-comments' })]);
     expect(JSON.stringify(result.notes)).not.toContain('ephemeral');
   });

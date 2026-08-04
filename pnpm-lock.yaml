@@ -132,6 +132,9 @@ importers:
       '@xhs/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@xhs/self-scrape-import':
+        specifier: workspace:*
+        version: link:../../packages/self-scrape-import
       bullmq:
         specifier: ^6.0.5
         version: 6.0.5(ioredis@6.0.0)(pg@8.22.0)

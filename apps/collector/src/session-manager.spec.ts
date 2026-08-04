@@ -6,19 +6,88 @@ import { describe, expect, it, vi } from 'vitest';
 import { LocalXhsSessionManager } from './session-manager';
 
 describe('LocalXhsSessionManager', () => {
+  it('reports authentication only after the creator page proves login', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
+    const adapter = {
+      detectLoginState: vi.fn(async () => 'authenticated' as const),
+      captureQr: vi.fn(async () => Buffer.from([])),
+    };
+    const manager = new LocalXhsSessionManager({
+      profileDirectory: join(root, 'profile'),
+      launch: async () => ({ close: async () => undefined }),
+      adapter,
+    });
+
+    await manager.start();
+    const status = await manager.refresh();
+
+    expect(status).toMatchObject({ state: 'authenticated', changedAt: expect.any(String) });
+    expect(JSON.stringify(status)).not.toMatch(/cookie|storage|profile|phone/i);
+  });
+
+  it('makes a QR snapshot inaccessible after its expiry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-04T00:00:00.000Z'));
+    const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
+    const png = pngFixture(320, 320);
+    const manager = new LocalXhsSessionManager({
+      profileDirectory: join(root, 'profile'),
+      launch: async () => ({ close: async () => undefined }),
+      adapter: {
+        detectLoginState: async () => 'awaiting_scan',
+        captureQr: async () => png,
+      },
+    });
+
+    await manager.start();
+    await manager.refresh();
+    expect(manager.qr()).toMatchObject({
+      bytes: png,
+      contentType: 'image/png',
+      expiresAt: '2026-08-04T00:02:00.000Z',
+    });
+    vi.setSystemTime(new Date('2026-08-04T00:02:01.000Z'));
+
+    expect(() => manager.qr()).toThrow('collector_qr_expired');
+    vi.useRealTimers();
+  });
+
+  it('rejects a QR image whose declared dimensions exceed the limit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
+    const manager = new LocalXhsSessionManager({
+      profileDirectory: join(root, 'profile'),
+      launch: async () => ({ close: async () => undefined }),
+      adapter: {
+        detectLoginState: async () => 'awaiting_scan',
+        captureQr: async () => pngFixture(1025, 320),
+      },
+    });
+
+    await expect(manager.start()).rejects.toThrow('collector_qr_invalid');
+  });
+
   it('launches one headed persistent session and returns only redacted state', async () => {
     const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
     const close = vi.fn(async () => undefined);
-    const launch = vi.fn(async () => ({ close }));
+    const launch = vi.fn(async () => ({
+      close,
+      page: {
+        url: () => 'https://creator.xiaohongshu.com/login',
+        locator: (selector: string) => ({ first: () => ({
+          isVisible: async () => selector === '[class*="qrcode"] canvas',
+          screenshot: async () => pngFixture(320, 320),
+        }) }),
+      },
+    }));
     const manager = new LocalXhsSessionManager({ profileDirectory: join(root, 'profile'), launch });
 
     const first = await manager.start();
     const second = await manager.start();
 
     expect(launch).toHaveBeenCalledTimes(1);
-    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ headless: false, url: 'https://www.xiaohongshu.com/' }));
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ headless: false, url: 'https://creator.xiaohongshu.com/' }));
     expect(second).toEqual(first);
-    expect(first).toMatchObject({ state: 'browser_open' });
+    expect(first).toMatchObject({ state: 'awaiting_scan', qrExpiresAt: expect.any(String) });
     expect(JSON.stringify(first)).not.toMatch(/cookie|storage|profile/i);
     expect((await stat(join(root, 'profile'))).mode & 0o777).toBe(0o700);
   });
@@ -60,3 +129,12 @@ describe('LocalXhsSessionManager', () => {
     expect(manager.status()).toMatchObject({ state: 'closed' });
   });
 });
+
+function pngFixture(width: number, height: number) {
+  const bytes = Buffer.alloc(24);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
+  bytes.write('IHDR', 12, 'ascii');
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+}

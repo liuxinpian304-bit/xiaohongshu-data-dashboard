@@ -22,7 +22,7 @@ describe('parseCreatorPayload', () => {
       code: 0,
       success: true,
       data: {
-        notes: [{ id: 'note-real-1', display_title: '创作中心标题', time: 1_754_214_400, likes: 9, comments_count: 4, view_count: 88 }],
+        notes: [{ id: 'note-real-1', display_title: '创作中心标题', time: '1754214400', likes: 9, comments_count: 4, view_count: 88 }],
         page: 1,
       },
     }, '2026-08-04T07:00:00.000Z').notes).toEqual([

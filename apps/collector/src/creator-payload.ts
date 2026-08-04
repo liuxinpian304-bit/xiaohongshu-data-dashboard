@@ -85,7 +85,11 @@ function boolean(value: unknown) { return typeof value === 'boolean' ? value : n
 function count(value: unknown) { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null; }
 function iso(value: string) { const date = new Date(value); if (!Number.isFinite(date.getTime())) throw new Error('collector_timestamp_invalid'); return date.toISOString(); }
 function time(value: unknown) {
-  if (typeof value === 'string') { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toISOString() : null; }
+  if (typeof value === 'string') {
+    if (/^\d{1,16}$/.test(value)) return time(Number(value));
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  }
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
   const milliseconds = value < 10_000_000_000 ? value * 1_000 : value;
   const date = new Date(milliseconds);

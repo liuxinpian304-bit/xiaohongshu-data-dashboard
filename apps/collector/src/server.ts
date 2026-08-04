@@ -15,7 +15,7 @@ interface SessionManagerLike {
   qr(): QrSnapshot;
   close(): Promise<SessionStatus>;
 }
-interface CollectionRunLike { start(): CollectionStatus; status(): CollectionStatus }
+interface CollectionRunLike { start(): CollectionStatus; status(): CollectionStatus; events?(runId: string): unknown[] }
 
 export function validateCollectorConfiguration(configuration: CollectorConfiguration) {
   if (!configuration.enabled) throw new Error('collector_disabled');
@@ -29,7 +29,8 @@ export function createCollectorServer(options: { token: string; manager: Session
     response.setHeader('content-type', 'application/json; charset=utf-8');
     response.setHeader('cache-control', 'no-store');
     if (!authorized(request.headers.authorization, options.token)) return send(response, 401, { error: 'unauthorized' });
-    const route = `${request.method} ${request.url}`;
+    const parsedUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
+    const route = `${request.method} ${parsedUrl.pathname}`;
     try {
       if (route === 'GET /v1/session/status') return send(response, 200, options.manager.status());
       if (route === 'POST /v1/session/start') return send(response, 200, await options.manager.start());
@@ -38,6 +39,12 @@ export function createCollectorServer(options: { token: string; manager: Session
       if (route === 'POST /v1/session/close') return send(response, 200, await options.manager.close());
       if (route === 'POST /v1/collection/start') return send(response, 202, options.collection.start());
       if (route === 'GET /v1/collection/status') return send(response, 200, options.collection.status());
+      if (route === 'GET /v1/collection/events') {
+        const runId = parsedUrl.searchParams.get('runId');
+        if (!runId || runId.length > 200 || [...parsedUrl.searchParams.keys()].some((key) => key !== 'runId')) return send(response, 400, { error: 'invalid_request' });
+        if (!options.collection.events) return send(response, 409, { error: 'collector_events_unavailable' });
+        return send(response, 200, { runId, events: options.collection.events(runId) });
+      }
       return send(response, 404, { error: 'not_found' });
     } catch (error) {
       const code = error instanceof Error && /^collector_[a-z_]+$/.test(error.message) ? error.message : 'collector_operation_failed';

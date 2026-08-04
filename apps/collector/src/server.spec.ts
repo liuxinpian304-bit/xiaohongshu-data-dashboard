@@ -25,6 +25,7 @@ describe('collector server', () => {
     const collection = {
       start: () => ({ runId: 'run-1', state: 'running' as const, stage: 'account' as const, processed: 0, total: 0, incompleteNotes: 0, changedAt: '2026-08-04T00:00:04.000Z' }),
       status: () => ({ runId: 'run-1', state: 'running' as const, stage: 'notes' as const, processed: 2, total: 8, incompleteNotes: 0, changedAt: '2026-08-04T00:00:05.000Z' }),
+      events: (runId: string) => runId === 'run-1' ? [{ version: 1, type: 'completed', source: 'self-scrape', runId, completedAt: '2026-08-04T00:00:06.000Z' }] : [],
     };
     const server = createCollectorServer({ token, manager, collection });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -43,6 +44,11 @@ describe('collector server', () => {
       expect(await call(address.port, 'POST', '/v1/session/close', token)).toMatchObject({ status: 200, body: { state: 'closed', changedAt: expect.any(String) } });
       expect(await call(address.port, 'POST', '/v1/collection/start', token)).toMatchObject({ status: 202, body: { runId: 'run-1', state: 'running', stage: 'account' } });
       expect(await call(address.port, 'GET', '/v1/collection/status', token)).toMatchObject({ status: 200, body: { runId: 'run-1', state: 'running', stage: 'notes', processed: 2 } });
+      expect(await call(address.port, 'GET', '/v1/collection/events?runId=run-1', token)).toMatchObject({
+        status: 200,
+        body: { runId: 'run-1', events: [{ type: 'completed', source: 'self-scrape' }] },
+      });
+      expect(await call(address.port, 'GET', '/v1/collection/events?runId=', token)).toMatchObject({ status: 400 });
       expect(await call(address.port, 'GET', '/v1/session/cookies', token)).toMatchObject({ status: 404 });
     } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
   });

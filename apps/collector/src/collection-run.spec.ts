@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { CollectionRun } from './collection-run';
 
+type TestEvent = { version: 1; type: 'completed'; source: 'self-scrape'; runId: string; completedAt: string };
+
 describe('CollectionRun', () => {
   it('starts one run and returns the same run while it is active', async () => {
     let finish!: () => void;
@@ -43,5 +45,37 @@ describe('CollectionRun', () => {
       state: 'failed', errorCode: 'collector_collection_failed',
     }));
     expect(JSON.stringify(runner.status())).not.toContain('secret selector');
+  });
+
+  it('keeps validated collection events scoped to their run without exposing them in status', async () => {
+    const runner = new CollectionRun<TestEvent>({
+      createRunId: () => 'run-4',
+      collect: async (_progress, emit, runId) => {
+        emit({ version: 1, type: 'completed', source: 'self-scrape', runId, completedAt: '2026-08-04T06:00:00.000Z' });
+      },
+    });
+
+    runner.start();
+    await vi.waitFor(() => expect(runner.status().state).toBe('completed'));
+
+    expect(runner.events('run-4')).toEqual([
+      { version: 1, type: 'completed', source: 'self-scrape', runId: 'run-4', completedAt: '2026-08-04T06:00:00.000Z' },
+    ]);
+    expect(JSON.stringify(runner.status())).not.toContain('completedAt');
+    expect(() => runner.events('different-run')).toThrowError('collector_run_not_found');
+  });
+
+  it('discards partial events when collection fails', async () => {
+    const runner = new CollectionRun<TestEvent>({
+      createRunId: () => 'run-5',
+      collect: async (_progress, emit, runId) => {
+        emit({ version: 1, type: 'completed', source: 'self-scrape', runId, completedAt: '2026-08-04T06:00:00.000Z' });
+        throw new Error('page changed');
+      },
+    });
+
+    runner.start();
+    await vi.waitFor(() => expect(runner.status().state).toBe('failed'));
+    expect(runner.events('run-5')).toEqual([]);
   });
 });

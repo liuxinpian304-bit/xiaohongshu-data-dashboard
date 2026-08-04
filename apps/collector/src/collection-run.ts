@@ -19,24 +19,32 @@ export interface CollectionStatus {
   errorCode?: 'collector_collection_failed';
 }
 
-interface CollectionRunOptions {
-  collect(progress: (value: CollectionProgress) => void): Promise<void>;
+interface CollectionRunOptions<TEvent> {
+  collect(progress: (value: CollectionProgress) => void, emit: (event: TEvent) => void, runId: string): Promise<void>;
   createRunId?: () => string;
 }
 
-export class CollectionRun {
+export class CollectionRun<TEvent = never> {
   private current: CollectionStatus = emptyStatus();
+  private collectedEvents: TEvent[] = [];
 
-  constructor(private readonly options: CollectionRunOptions) {}
+  constructor(private readonly options: CollectionRunOptions<TEvent>) {}
 
   status(): CollectionStatus {
     return { ...this.current };
   }
 
+  events(runId: string): TEvent[] {
+    if (this.current.runId !== runId) throw new Error('collector_run_not_found');
+    return this.current.state === 'failed' ? [] : [...this.collectedEvents];
+  }
+
   start(): CollectionStatus {
     if (this.current.state === 'running') return this.status();
+    const runId = (this.options.createRunId ?? randomUUID)();
+    this.collectedEvents = [];
     this.current = {
-      runId: (this.options.createRunId ?? randomUUID)(),
+      runId,
       state: 'running',
       stage: 'account',
       processed: 0,
@@ -47,12 +55,15 @@ export class CollectionRun {
     const running = this.options.collect((progress) => {
       if (this.current.state !== 'running') return;
       this.current = { ...this.current, ...progress, changedAt: new Date().toISOString() };
-    });
+    }, (event) => {
+      if (this.current.state === 'running') this.collectedEvents.push(event);
+    }, runId);
     void running
       .then(() => {
         this.current = { ...this.current, state: 'completed', stage: 'complete', changedAt: new Date().toISOString() };
       })
       .catch(() => {
+        this.collectedEvents = [];
         this.current = { ...this.current, state: 'failed', changedAt: new Date().toISOString(), errorCode: 'collector_collection_failed' };
       });
     return this.status();

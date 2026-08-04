@@ -203,6 +203,9 @@ importers:
       '@xhs/domain':
         specifier: workspace:*
         version: link:../domain
+      '@xhs/self-scrape-import':
+        specifier: workspace:*
+        version: link:../self-scrape-import
       pg:
         specifier: ^8.16.3
         version: 8.22.0

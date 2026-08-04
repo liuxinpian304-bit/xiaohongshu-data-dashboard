@@ -5,3 +5,5 @@ export { CommentRepository } from './comment.repository';
 export type { UpsertCommentInput } from './comment.repository';
 export type { Comment } from '../generated/client/client';
 export type { CommentCompleteness, SyncJobStatus } from '@xhs/domain';
+export { importSelfScrapeCollection } from './self-scrape-collection';
+export type { SelfScrapeCollectionOptions, SelfScrapeCollectionSummary } from './self-scrape-collection';

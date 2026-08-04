@@ -34,6 +34,9 @@ model Account {
   connectorType           String
   platformId              String
   displayName             String?
+  xhsAccountId            String?
+  avatarUrl               String?
+  identityVerifiedAt      DateTime?                 @db.Timestamptz(3)
   revocationState         String                    @default("none")
   revocationRetainData    Boolean?
   revocationRequestedAt   DateTime?                 @db.Timestamptz(3)

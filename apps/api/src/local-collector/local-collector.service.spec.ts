@@ -42,6 +42,10 @@ describe('LocalCollectorService', () => {
     let statusCalls = 0;
     const fetcher = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
+      if (url.endsWith('/v1/session/status')) return Response.json({
+        state: 'authenticated', changedAt: '2026-08-04T00:00:00.000Z', identityVerifiedAt: '2026-08-04T00:00:00.000Z',
+        identity: { platformId: 'stable-user-1', xhsAccountId: 'red_123', displayName: '真实昵称', avatarUrl: null },
+      });
       if (url.endsWith('/v1/collection/start')) return Response.json({ runId: 'run-import', state: 'running', stage: 'account', processed: 0, total: 0, incompleteNotes: 0, changedAt: '2026-08-04T00:00:00.000Z' });
       if (url.endsWith('/v1/collection/status')) {
         statusCalls += 1;
@@ -50,12 +54,14 @@ describe('LocalCollectorService', () => {
       if (url.includes('/v1/collection/events?')) return Response.json({ runId: 'run-import', events: [{ version: 1, type: 'completed', source: 'self-scrape', runId: 'run-import', completedAt: '2026-08-04T00:00:01.000Z' }] });
       throw new Error('unexpected route');
     });
-    const service = new LocalCollectorService({ enabled: true, url: 'http://127.0.0.1:43127', token, fetcher, importer, recorder, sleep: async () => undefined, accountPlatformId: 'local-creator' });
+    const bindIdentity = vi.fn(async () => undefined);
+    const service = new LocalCollectorService({ enabled: true, url: 'http://127.0.0.1:43127', token, fetcher, importer, recorder, sleep: async () => undefined, bindIdentity });
 
     await expect(service.startSync()).resolves.toMatchObject({ state: 'running', runId: 'run-import' });
     await vi.waitFor(() => expect(importer).toHaveBeenCalledOnce());
     await expect(service.syncStatus()).resolves.toMatchObject({ state: 'completed', stage: 'complete' });
-    expect(importer).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ runId: 'run-import', accountPlatformId: 'local-creator' }));
+    expect(importer).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ runId: 'run-import', accountPlatformId: 'stable-user-1' }));
+    expect(bindIdentity).toHaveBeenCalledWith(expect.objectContaining({ platformId: 'stable-user-1', displayName: '真实昵称' }), '2026-08-04T00:00:00.000Z');
     expect(recorder).toHaveBeenCalledWith('run-import', expect.objectContaining({ notesChanged: 2, snapshotsChanged: 6 }));
     expect(statusCalls).toBeGreaterThan(0);
   });

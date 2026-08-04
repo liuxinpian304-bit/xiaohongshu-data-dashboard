@@ -12,7 +12,7 @@ describe('account credential lifecycle', () => {
   it('returns the complete public account projection from authorize and reauthorize', async () => {
     const service = new AccountsService(new AuditService());
     const created = await service.authorize({ connectorType: `projection-${crypto.randomUUID()}`, platformId: crypto.randomUUID(), displayName: 'Projection', secret: 'first', kind: 'oauth' });
-    expect(created).toMatchObject({ displayName: 'Projection', capabilities: [] });
+    expect(created).toMatchObject({ displayName: 'Projection', xhsAccountId: null, avatarUrl: null, identityVerifiedAt: null, capabilities: [] });
     const updated = await service.reauthorize(created.id, 'second', 'oauth');
     expect(updated).toMatchObject({ id: created.id, capabilities: [] });
   });

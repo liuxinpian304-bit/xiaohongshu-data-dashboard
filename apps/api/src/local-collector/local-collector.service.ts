@@ -4,17 +4,19 @@ import { importSelfScrapeCollection, prisma, type DatabaseClient } from '@xhs/da
 export type CollectorSessionAction = 'start' | 'status' | 'refresh' | 'close';
 export type CollectorCollectionAction = 'sync' | 'sync-status';
 export type CollectorAction = CollectorSessionAction | CollectorCollectionAction;
-export interface CollectorStatus { state: 'idle' | 'launching' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'closed' | 'error'; changedAt: string; qrExpiresAt?: string; errorCode?: string }
+export interface CollectorIdentity { platformId: string; xhsAccountId: string | null; displayName: string; avatarUrl: string | null }
+export interface CollectorStatus { state: 'idle' | 'launching' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'closed' | 'error'; changedAt: string; qrExpiresAt?: string; errorCode?: string; identity?: CollectorIdentity; identityVerifiedAt?: string }
 export interface CollectorQr { bytes: Buffer; etag: string; expires: string }
 export interface CollectorCollectionStatus { runId: string | null; state: 'idle' | 'running' | 'completed' | 'failed'; stage: 'account' | 'notes' | 'metrics' | 'comments' | 'replies' | 'writing' | 'reports' | 'complete'; processed: number; total: number; incompleteNotes: number; changedAt: string; errorCode?: 'collector_collection_failed' }
 interface ImportOptions { db: DatabaseClient; runId: string; accountPlatformId: string }
 interface ImportSummary { accountId: string; notesChanged: number; snapshotsChanged: number; commentsChanged: number; incompleteNotes: number; sha256: string }
-interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; importer?: (events: Iterable<unknown>, options: ImportOptions) => Promise<ImportSummary>; recorder?: (runId: string, summary: ImportSummary) => Promise<void>; db?: DatabaseClient; sleep?: (milliseconds: number) => Promise<void>; accountPlatformId?: string }
+interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; importer?: (events: Iterable<unknown>, options: ImportOptions) => Promise<ImportSummary>; recorder?: (runId: string, summary: ImportSummary) => Promise<void>; db?: DatabaseClient; sleep?: (milliseconds: number) => Promise<void>; bindIdentity?: (identity: CollectorIdentity, verifiedAt: string) => Promise<void> }
 
 @Injectable()
 export class LocalCollectorService {
   private readonly configuration: Configuration;
   private readonly imports = new Map<string, 'running' | 'completed' | 'failed'>();
+  private readonly runPlatformIds = new Map<string, string>();
 
   constructor(configuration?: Configuration) {
     this.configuration = configuration ?? {
@@ -25,8 +27,12 @@ export class LocalCollectorService {
   }
 
   async startSync() {
+    const session = await this.action('status');
+    if (session.state !== 'authenticated' || !session.identity || !session.identityVerifiedAt) throw new ServiceUnavailableException('collector_identity_unavailable');
+    await (this.configuration.bindIdentity ?? ((identity, verifiedAt) => bindIdentity(this.configuration.db ?? prisma, identity, verifiedAt)))(session.identity, session.identityVerifiedAt);
     const status = await this.action('sync');
     if (status.runId && this.imports.get(status.runId) !== 'running') {
+      this.runPlatformIds.set(status.runId, session.identity.platformId);
       this.imports.set(status.runId, 'running');
       void this.importRun(status.runId);
     }
@@ -97,11 +103,15 @@ export class LocalCollectorService {
       if (status?.state !== 'completed') throw new Error('collector_collection_timeout');
       const events = await this.events(runId);
       const importer = this.configuration.importer ?? importSelfScrapeCollection;
-      const summary = await importer(events, { db: this.configuration.db ?? prisma, runId, accountPlatformId: this.configuration.accountPlatformId ?? process.env.LOCAL_XHS_ACCOUNT_PLATFORM_ID ?? 'local-creator' });
+      const accountPlatformId = this.runPlatformIds.get(runId);
+      if (!accountPlatformId) throw new Error('collector_identity_unavailable');
+      const summary = await importer(events, { db: this.configuration.db ?? prisma, runId, accountPlatformId });
       await (this.configuration.recorder ?? ((id, value) => recordImport(this.configuration.db ?? prisma, id, value)))(runId, summary);
       this.imports.set(runId, 'completed');
     } catch {
       this.imports.set(runId, 'failed');
+    } finally {
+      this.runPlatformIds.delete(runId);
     }
   }
 
@@ -142,10 +152,23 @@ function isCollectionStatus(value: unknown): value is CollectorCollectionStatus 
 function isCollectorStatus(value: unknown): value is CollectorStatus {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => !['state', 'changedAt', 'qrExpiresAt', 'errorCode'].includes(key))) return false;
+  if (Object.keys(body).some((key) => !['state', 'changedAt', 'qrExpiresAt', 'errorCode', 'identity', 'identityVerifiedAt'].includes(key))) return false;
   const changedAt = typeof body.changedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(body.changedAt) && Number.isFinite(new Date(body.changedAt).getTime());
   const qrExpiresAt = body.qrExpiresAt === undefined || typeof body.qrExpiresAt === 'string' && Number.isFinite(new Date(body.qrExpiresAt).getTime());
-  return changedAt && qrExpiresAt && ['idle', 'launching', 'awaiting_scan', 'authenticated', 'verification_required', 'expired', 'closed', 'error'].includes(String(body.state)) && (body.errorCode === undefined || body.errorCode === 'collector_launch_failed');
+  const identity = body.identity === undefined || isCollectorIdentity(body.identity);
+  const identityVerifiedAt = body.identityVerifiedAt === undefined || typeof body.identityVerifiedAt === 'string' && Number.isFinite(new Date(body.identityVerifiedAt).getTime());
+  const authenticatedIdentity = body.state !== 'authenticated' || body.identity !== undefined && body.identityVerifiedAt !== undefined;
+  return changedAt && qrExpiresAt && identity && identityVerifiedAt && authenticatedIdentity && ['idle', 'launching', 'awaiting_scan', 'authenticated', 'verification_required', 'expired', 'closed', 'error'].includes(String(body.state)) && (body.errorCode === undefined || body.errorCode === 'collector_launch_failed');
+}
+
+function isCollectorIdentity(value: unknown): value is CollectorIdentity {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const identity = value as Record<string, unknown>;
+  if (Object.keys(identity).some((key) => !['platformId', 'xhsAccountId', 'displayName', 'avatarUrl'].includes(key))) return false;
+  const text = (field: unknown, nullable = false, max = 200) => nullable && field === null || typeof field === 'string' && field.trim().length > 0 && field.length <= max;
+  if (!text(identity.platformId) || !text(identity.xhsAccountId, true) || !text(identity.displayName) || !text(identity.avatarUrl, true, 2_048)) return false;
+  if (typeof identity.avatarUrl === 'string') { try { if (new URL(identity.avatarUrl).protocol !== 'https:') return false; } catch { return false; } }
+  return true;
 }
 
 async function readBoundedBytes(response: Response, maxBytes: number, code: string) {
@@ -175,6 +198,14 @@ async function recordImport(db: DatabaseClient, runId: string, summary: ImportSu
     await tx.syncJob.upsert({ where: { externalJobId: runId }, create: { externalJobId: runId, accountId: summary.accountId, status: 'succeeded', currentStage: 'complete', startedAt: now, completedAt: now, payload }, update: { status: 'succeeded', currentStage: 'complete', completedAt: now, error: null, payload } });
     await tx.notification.upsert({ where: { eventId: `self-scrape-sync:${runId}` }, create: { eventId: `self-scrape-sync:${runId}`, accountId: summary.accountId, type: 'sync_completed', title: '小红书数据同步完成', body: `已同步 ${summary.notesChanged} 条笔记变更、${summary.commentsChanged} 条评论变更`, link: '/dashboard' }, update: {} });
     await tx.auditLog.create({ data: { actor: 'local-collector', action: 'self_scrape.sync_succeeded', entityType: 'SelfScrapeCollectionRun', entityId: runId, details: payload } });
+  });
+}
+
+async function bindIdentity(db: DatabaseClient, identity: CollectorIdentity, verifiedAt: string) {
+  await db.account.upsert({
+    where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: identity.platformId } },
+    create: { connectorType: 'self-scrape', platformId: identity.platformId, xhsAccountId: identity.xhsAccountId, displayName: identity.displayName, avatarUrl: identity.avatarUrl, identityVerifiedAt: new Date(verifiedAt) },
+    update: { xhsAccountId: identity.xhsAccountId, displayName: identity.displayName, avatarUrl: identity.avatarUrl, identityVerifiedAt: new Date(verifiedAt) },
   });
 }
 

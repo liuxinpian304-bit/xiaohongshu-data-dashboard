@@ -1,4 +1,5 @@
 import { parseCreatorPayload, type CreatorCommentRecord, type CreatorNoteRecord } from './creator-payload';
+import { parseXhsAccountIdentity, type XhsAccountIdentity } from './xhs-account-identity';
 
 export type DetectedLoginState = 'loading' | 'awaiting_scan' | 'authenticated' | 'verification_required';
 interface XhsElementSurface {
@@ -97,6 +98,26 @@ export class XhsPageAdapter {
     throw new Error('collector_qr_not_found');
   }
 
+  async readAccountIdentity(): Promise<XhsAccountIdentity> {
+    if (await this.detectLoginState() !== 'authenticated') throw new Error('collector_authentication_required');
+    if (!this.page.on || !this.page.off || !this.page.goto) throw new Error('collector_identity_unavailable');
+    const pending = new Set<Promise<void>>();
+    let identity: XhsAccountIdentity | null = null;
+    const listener = (response: XhsResponseSurface) => {
+      const task = this.consumeIdentityResponse(response).then((value) => { identity ??= value; }).finally(() => pending.delete(task));
+      pending.add(task);
+    };
+    this.page.on('response', listener);
+    try {
+      await this.page.goto('https://creator.xiaohongshu.com/new/note-manager', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await this.settleResponses(pending, () => identity !== null, 40);
+      if (!identity) throw new Error('collector_identity_unavailable');
+      return identity;
+    } finally {
+      this.page.off('response', listener);
+    }
+  }
+
   async collectVisibleRecords(capturedAt = new Date().toISOString()): Promise<{ notes: CreatorNoteRecord[]; comments: CreatorCommentRecord[] }> {
     if (await this.detectLoginState() !== 'authenticated') throw new Error('collector_authentication_required');
     if (!this.page.on || !this.page.off || !this.page.goto) throw new Error('collector_page_changed');
@@ -158,6 +179,17 @@ export class XhsPageAdapter {
       for (const note of parsed.notes) notes.set(note.platformId, note);
       for (const comment of parsed.comments) comments.set(comment.platformId, comment);
     } catch { /* Ignore unrelated or structurally unsafe creator responses. */ }
+  }
+
+  private async consumeIdentityResponse(response: XhsResponseSurface) {
+    let url: URL;
+    try { url = new URL(response.url()); } catch { return null; }
+    if (url.origin !== 'https://creator.xiaohongshu.com') return null;
+    const headers = await response.headers();
+    if (!headers['content-type']?.toLowerCase().includes('json')) return null;
+    const declared = Number(headers['content-length'] ?? 0);
+    if (Number.isFinite(declared) && declared > 5_000_000) return null;
+    try { return parseXhsAccountIdentity(await response.json()); } catch { return null; }
   }
 
   private async settleResponses(pending: Set<Promise<void>>, ready: () => boolean = () => true, attempts = 1) {

@@ -105,6 +105,41 @@ describe('XhsPageAdapter', () => {
     expect(listeners.size).toBe(0);
   });
 
+  it('reads a verified public account identity from an authenticated creator response', async () => {
+    const listeners = new Set<(response: any) => void>();
+    const response = {
+      url: () => 'https://creator.xiaohongshu.com/api/user/profile',
+      headers: () => ({ 'content-type': 'application/json', 'content-length': '256' }),
+      json: async () => ({ data: { user_id: 'stable-user-1', red_id: 'red_123', nickname: '真实昵称', avatar: 'https://sns-avatar-qc.xhscdn.com/a.jpg', cookie: 'secret' } }),
+    };
+    const page = {
+      url: () => 'https://creator.xiaohongshu.com/new/home',
+      locator: (selector: string) => ({ first: () => ({ isVisible: async () => selector === 'text=数据看板', isEnabled: async () => false, screenshot: async () => Buffer.from([]), click: async () => undefined, evaluate: async () => ({ width: 0, height: 0 }) }), all: async () => [] }),
+      on: (_event: 'response', listener: (value: any) => void) => listeners.add(listener),
+      off: (_event: 'response', listener: (value: any) => void) => listeners.delete(listener),
+      goto: async () => { for (const listener of listeners) listener(response); },
+      waitForTimeout: async () => undefined,
+    };
+
+    const identity = await new XhsPageAdapter(page as any).readAccountIdentity();
+
+    expect(identity).toEqual({ platformId: 'stable-user-1', xhsAccountId: 'red_123', displayName: '真实昵称', avatarUrl: 'https://sns-avatar-qc.xhscdn.com/a.jpg' });
+    expect(JSON.stringify(identity)).not.toContain('secret');
+    expect(listeners.size).toBe(0);
+  });
+
+  it('fails closed when an authenticated creator page does not prove a stable identity', async () => {
+    const page = {
+      ...fakePage({ url: 'https://creator.xiaohongshu.com/new/home', visibleSelectors: ['text=数据看板'] }),
+      on: () => undefined,
+      off: () => undefined,
+      goto: async () => undefined,
+      waitForTimeout: async () => undefined,
+    };
+
+    await expect(new XhsPageAdapter(page as any).readAccountIdentity()).rejects.toThrow('collector_identity_unavailable');
+  });
+
   it('waits for a delayed creator response instead of returning an unproven empty account', async () => {
     const listeners = new Set<(response: any) => void>();
     let waits = 0;

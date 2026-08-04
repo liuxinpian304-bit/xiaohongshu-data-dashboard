@@ -127,6 +127,21 @@ describe('XhsPageAdapter', () => {
     expect(result.notes).toEqual([expect.objectContaining({ platformId: 'note-delayed' })]);
     expect(waits).toBeGreaterThanOrEqual(3);
   });
+
+  it('stops clicking a visually disabled next-page control when no new record appears', async () => {
+    const listeners = new Set<(response: any) => void>();
+    const nextClick = vi.fn(async () => undefined);
+    const response = { url: () => 'https://creator.xiaohongshu.com/api/page', headers: () => ({ 'content-type': 'application/json' }), json: async () => ({ data: { notes: [{ id: 'only-note', display_title: '唯一笔记', time: '1754214400', likes: 1, comments_count: 0, view_count: 2 }] } }) };
+    const page = {
+      url: () => 'https://creator.xiaohongshu.com/new/home',
+      locator: (selector: string) => ({ first: () => ({ isVisible: async () => selector === 'text=数据看板' || selector === 'text=下一页', isEnabled: async () => true, screenshot: async () => Buffer.from([]), click: selector === 'text=下一页' ? nextClick : async () => undefined, evaluate: async () => ({ width: 0, height: 0 }) }), all: async () => [] }),
+      on: (_event: 'response', listener: (value: any) => void) => listeners.add(listener), off: (_event: 'response', listener: (value: any) => void) => listeners.delete(listener),
+      goto: async () => { for (const listener of listeners) listener(response); }, waitForTimeout: async () => undefined,
+    };
+
+    await expect(new XhsPageAdapter(page as any).collectVisibleRecords()).resolves.toMatchObject({ notes: [{ platformId: 'only-note' }] });
+    expect(nextClick).toHaveBeenCalledOnce();
+  });
 });
 
 describe('CollectionPager', () => {

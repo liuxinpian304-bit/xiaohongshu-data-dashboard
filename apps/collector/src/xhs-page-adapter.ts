@@ -111,12 +111,12 @@ export class XhsPageAdapter {
     try {
       await this.page.goto('https://creator.xiaohongshu.com/new/note-manager', { waitUntil: 'domcontentloaded', timeout: 30_000 });
       await this.settleResponses(pending, () => notes.size > 0, 40);
-      await this.clickThroughVisiblePages(pending);
+      await this.clickThroughVisiblePages(pending, () => notes.size);
       const commentNavigation = this.page.locator('text=评论管理').first();
       if (await commentNavigation.isVisible()) {
         await commentNavigation.click();
         await this.settleResponses(pending, () => comments.size > 0, 20);
-        await this.clickThroughVisiblePages(pending);
+        await this.clickThroughVisiblePages(pending, () => comments.size);
       }
       return { notes: [...notes.values()], comments: [...comments.values()] };
     } finally {
@@ -147,12 +147,14 @@ export class XhsPageAdapter {
     }
   }
 
-  private async clickThroughVisiblePages(pending: Set<Promise<void>>) {
+  private async clickThroughVisiblePages(pending: Set<Promise<void>>, recordCount: () => number) {
     for (let page = 0; page < 1_000; page += 1) {
       const next = this.page.locator('text=下一页').first();
       if (!await next.isVisible() || (next.isEnabled && !await next.isEnabled())) return;
+      const before = recordCount();
       await next.click();
-      await this.settleResponses(pending);
+      await this.settleResponses(pending, () => recordCount() > before, 20);
+      if (recordCount() <= before) return;
     }
     throw new Error('collector_page_limit_exceeded');
   }

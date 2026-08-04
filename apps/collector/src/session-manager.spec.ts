@@ -92,12 +92,11 @@ describe('LocalXhsSessionManager', () => {
     expect((await stat(join(root, 'profile'))).mode & 0o777).toBe(0o700);
   });
 
-  it('confirms and closes without deleting the persistent profile', async () => {
+  it('closes without deleting the persistent profile', async () => {
     const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
     const close = vi.fn(async () => undefined);
     const manager = new LocalXhsSessionManager({ profileDirectory: join(root, 'profile'), launch: async () => ({ close }) });
     await manager.start();
-    expect(manager.confirm()).toMatchObject({ state: 'user_confirmed' });
     expect(await manager.close()).toMatchObject({ state: 'closed' });
     expect(close).toHaveBeenCalledOnce();
     await expect(stat(join(root, 'profile'))).resolves.toBeDefined();

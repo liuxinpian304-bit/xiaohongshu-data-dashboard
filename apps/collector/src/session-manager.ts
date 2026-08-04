@@ -68,12 +68,6 @@ export class LocalXhsSessionManager {
     return this.launching;
   }
 
-  confirm() {
-    if (this.current.state !== 'browser_open' && this.current.state !== 'user_confirmed') throw new Error('collector_session_not_open');
-    this.setState('user_confirmed');
-    return this.status();
-  }
-
   async close() {
     const pending = this.launching;
     if (pending) await pending.catch(() => undefined);

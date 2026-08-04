@@ -4,15 +4,17 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { Transform } from 'node:stream';
 
 import type { DatabaseClient } from '@xhs/database';
-import { parseSelfScrapeJsonl, type NormalizedSelfScrapeRecord } from '@xhs/self-scrape-import';
+import { DEFAULT_JSONL_LIMITS, parseSelfScrapeJsonl, SelfScrapeParseError, type JsonlLimits, type NormalizedSelfScrapeRecord } from '@xhs/self-scrape-import';
 
 export interface SelfScrapeImportOptions {
   file: string;
   accountPlatformId: string;
   commit: boolean;
   db: DatabaseClient;
+  limits?: Partial<JsonlLimits>;
 }
 
 export interface SelfScrapeImportSummary {
@@ -40,11 +42,11 @@ export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Pr
   try {
     spoolDirectory = await mkdtemp(join(tmpdir(), 'xhs-self-import-spool-'));
     const spoolFile = join(spoolDirectory, 'input.jsonl');
-    await pipeline(createReadStream(options.file), createWriteStream(spoolFile, { flags: 'wx', mode: 0o600 }));
-    dryRun = await summarizeFile(spoolFile);
+    await pipeline(createReadStream(options.file), byteLimit(options.limits?.maxFileBytes ?? DEFAULT_JSONL_LIMITS.maxFileBytes), createWriteStream(spoolFile, { flags: 'wx', mode: 0o600 }));
+    dryRun = await summarizeFile(spoolFile, options.limits);
     if (!options.commit) return { ...dryRun, runId, notesChanged, snapshotsChanged };
 
-    const parsed = parseSelfScrapeJsonl(createReadStream(spoolFile));
+    const parsed = parseSelfScrapeJsonl(createReadStream(spoolFile), options.limits);
     for await (const entry of parsed.entries) {
       if (!entry.ok) continue;
       const result = await commitRecord(options.db, options.accountPlatformId, entry.record, runId!);
@@ -71,10 +73,21 @@ export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Pr
   }
 }
 
-async function summarizeFile(file: string) {
-  const parsed = parseSelfScrapeJsonl(createReadStream(file));
+async function summarizeFile(file: string, limits?: Partial<JsonlLimits>) {
+  const parsed = parseSelfScrapeJsonl(createReadStream(file), limits);
   for await (const _entry of parsed.entries) { /* consume without retaining records */ }
   return parsed.summary;
+}
+
+function byteLimit(maxFileBytes: number) {
+  let totalBytes = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      totalBytes += chunk.byteLength;
+      if (totalBytes > maxFileBytes) callback(new SelfScrapeParseError('file_too_large', 'JSONL file exceeds the configured byte limit'));
+      else callback(null, chunk);
+    },
+  });
 }
 
 async function commitRecord(db: DatabaseClient, accountPlatformId: string, record: NormalizedSelfScrapeRecord, runId: string) {

@@ -97,4 +97,14 @@ describe('importSelfScrapeFile', () => {
     expect(failed.details).toMatchObject({ code: 'Error', sha256: null, totalLines: null });
     expect(JSON.stringify(failed.details)).not.toContain(missingFile);
   });
+
+  it('stops spool copying at the configured byte limit before any database import', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'xhs-self-large-'));
+    const file = join(directory, 'large.jsonl');
+    await writeFile(file, `${JSON.stringify(record)}\n`);
+    await expect(importSelfScrapeFile({ file, accountPlatformId: 'large-account', commit: true, db: prisma, limits: { maxFileBytes: 20 } })).rejects.toMatchObject({ code: 'file_too_large' });
+    expect(await prisma.account.count({ where: { connectorType: 'self-scrape' } })).toBe(0);
+    const failed = await prisma.auditLog.findFirstOrThrow({ where: { action: 'self_scrape.import_failed' }, orderBy: { createdAt: 'desc' } });
+    expect(failed.details).toMatchObject({ code: 'SelfScrapeParseError', totalBytes: null });
+  });
 });

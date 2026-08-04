@@ -22,10 +22,10 @@ export class SelfScrapeParseError extends Error {
   }
 }
 
-const DEFAULT_LIMITS: JsonlLimits = { maxLineBytes: 256 * 1024, maxFileBytes: 100 * 1024 * 1024, maxLines: 1_000_000 };
+export const DEFAULT_JSONL_LIMITS: JsonlLimits = { maxLineBytes: 256 * 1024, maxFileBytes: 100 * 1024 * 1024, maxLines: 1_000_000 };
 
 export function parseSelfScrapeJsonl(stream: AsyncIterable<Uint8Array | string>, supplied: Partial<JsonlLimits> = {}) {
-  const limits = validateLimits({ ...DEFAULT_LIMITS, ...supplied });
+  const limits = validateLimits({ ...DEFAULT_JSONL_LIMITS, ...supplied });
   let resolveSummary!: (summary: DryRunSummary) => void;
   let rejectSummary!: (error: unknown) => void;
   const summary = new Promise<DryRunSummary>((resolve, reject) => { resolveSummary = resolve; rejectSummary = reject; });

@@ -40,7 +40,8 @@ export function parseCreatorPayload(payload: unknown, capturedAt: string): Creat
     if (hasMore !== null) page = { cursor: text(value.cursor ?? value.next_cursor ?? value.nextCursor) || null, hasMore };
 
     const commentId = text(value.comment_id ?? value.commentId);
-    const noteId = text(value.note_id ?? value.noteId);
+    const creatorTitle = text(value.display_title);
+    const noteId = text(value.note_id ?? value.noteId ?? (creatorTitle !== null ? value.id : null));
     const content = text(value.content ?? value.comment_content ?? value.commentContent);
     let nestedParent = parentCommentId;
     if (commentId && noteId && content !== null) {
@@ -53,8 +54,8 @@ export function parseCreatorPayload(payload: unknown, capturedAt: string): Creat
       }
     }
 
-    const title = text(value.title ?? value.note_title ?? value.noteTitle);
-    const publishedAt = time(value.publish_time ?? value.publishTime ?? value.published_at ?? value.publishedAt);
+    const title = text(value.title ?? value.note_title ?? value.noteTitle ?? value.display_title);
+    const publishedAt = time(value.publish_time ?? value.publishTime ?? value.published_at ?? value.publishedAt ?? value.time);
     if (!commentId && noteId && title !== null && publishedAt) {
       notes.set(noteId, {
         platformId: noteId,
@@ -62,8 +63,8 @@ export function parseCreatorPayload(payload: unknown, capturedAt: string): Creat
         publishedAt,
         metrics: {
           views: count(value.view_count ?? value.viewCount ?? value.read_count ?? value.readCount),
-          likes: count(value.like_count ?? value.likeCount ?? value.liked_count ?? value.likedCount),
-          comments: count(value.comment_count ?? value.commentCount),
+          likes: count(value.like_count ?? value.likeCount ?? value.liked_count ?? value.likedCount ?? value.likes),
+          comments: count(value.comment_count ?? value.commentCount ?? value.comments_count),
         },
         capturedAt: iso(capturedAt),
       });

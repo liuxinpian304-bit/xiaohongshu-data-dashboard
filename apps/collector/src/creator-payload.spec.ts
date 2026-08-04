@@ -17,6 +17,19 @@ describe('parseCreatorPayload', () => {
     });
   });
 
+  it('maps the current creator note-manager field names observed in the browser', () => {
+    expect(parseCreatorPayload({
+      code: 0,
+      success: true,
+      data: {
+        notes: [{ id: 'note-real-1', display_title: '创作中心标题', time: 1_754_214_400, likes: 9, comments_count: 4, view_count: 88 }],
+        page: 1,
+      },
+    }, '2026-08-04T07:00:00.000Z').notes).toEqual([
+      { platformId: 'note-real-1', title: '创作中心标题', publishedAt: '2025-08-03T09:46:40.000Z', metrics: { views: 88, likes: 9, comments: 4 }, capturedAt: '2026-08-04T07:00:00.000Z' },
+    ]);
+  });
+
   it('extracts comments and replies while preserving parent identity', () => {
     expect(parseCreatorPayload({
       data: {

@@ -11,8 +11,8 @@ export class LocalCollectorController {
   @Post('start') start() { return this.collector.action('start'); }
   @Post('refresh') refresh() { return this.collector.action('refresh'); }
   @Post('close') close() { return this.collector.action('close'); }
-  @Post('sync') sync() { return this.collector.action('sync'); }
-  @Get('sync-status') syncStatus() { return this.collector.action('sync-status'); }
+  @Post('sync') sync() { return this.collector.startSync(); }
+  @Get('sync-status') syncStatus() { return this.collector.syncStatus(); }
   @Get('qr') async qr(@Res() response: Response) {
     const qr = await this.collector.qr();
     response.setHeader('content-type', 'image/png');

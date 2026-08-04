@@ -5,7 +5,7 @@ import { LocalCollectorController } from './local-collector.controller';
 describe('LocalCollectorController', () => {
   it('exposes explicit session and collection actions', async () => {
     const action = vi.fn(async (name: string) => ({ action: name }));
-    const controller = new LocalCollectorController({ action } as any);
+    const controller = new LocalCollectorController({ action, startSync: async () => ({ action: 'sync' }), syncStatus: async () => ({ action: 'sync-status' }) } as any);
 
     await expect(controller.start()).resolves.toEqual({ action: 'start' });
     await expect(controller.refresh()).resolves.toEqual({ action: 'refresh' });

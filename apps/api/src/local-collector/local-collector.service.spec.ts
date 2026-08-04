@@ -36,6 +36,28 @@ describe('LocalCollectorService', () => {
     expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:43127/v1/collection/start', expect.objectContaining({ method: 'POST' }));
   });
 
+  it('waits for collection events and imports them before reporting sync complete', async () => {
+    const importer = vi.fn(async () => ({ accountId: '00000000-0000-4000-8000-000000000001', notesChanged: 2, snapshotsChanged: 6, commentsChanged: 0, incompleteNotes: 0, sha256: 'a'.repeat(64) }));
+    let statusCalls = 0;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/v1/collection/start')) return Response.json({ runId: 'run-import', state: 'running', stage: 'account', processed: 0, total: 0, incompleteNotes: 0, changedAt: '2026-08-04T00:00:00.000Z' });
+      if (url.endsWith('/v1/collection/status')) {
+        statusCalls += 1;
+        return Response.json({ runId: 'run-import', state: 'completed', stage: 'complete', processed: 2, total: 2, incompleteNotes: 0, changedAt: '2026-08-04T00:00:01.000Z' });
+      }
+      if (url.includes('/v1/collection/events?')) return Response.json({ runId: 'run-import', events: [{ version: 1, type: 'completed', source: 'self-scrape', runId: 'run-import', completedAt: '2026-08-04T00:00:01.000Z' }] });
+      throw new Error('unexpected route');
+    });
+    const service = new LocalCollectorService({ enabled: true, url: 'http://127.0.0.1:43127', token, fetcher, importer, sleep: async () => undefined, accountPlatformId: 'local-creator' });
+
+    await expect(service.startSync()).resolves.toMatchObject({ state: 'running', runId: 'run-import' });
+    await vi.waitFor(() => expect(importer).toHaveBeenCalledOnce());
+    await expect(service.syncStatus()).resolves.toMatchObject({ state: 'completed', stage: 'complete' });
+    expect(importer).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ runId: 'run-import', accountPlatformId: 'local-creator' }));
+    expect(statusCalls).toBeGreaterThan(0);
+  });
+
   it('accepts only bounded PNG QR responses', async () => {
     const png = pngFixture(320, 320);
     const fetcher = vi.fn(async () => new Response(png, {

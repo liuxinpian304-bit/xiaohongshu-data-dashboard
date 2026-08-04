@@ -1,4 +1,5 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { importSelfScrapeCollection, prisma, type DatabaseClient } from '@xhs/database';
 
 export type CollectorSessionAction = 'start' | 'status' | 'refresh' | 'close';
 export type CollectorCollectionAction = 'sync' | 'sync-status';
@@ -6,11 +7,14 @@ export type CollectorAction = CollectorSessionAction | CollectorCollectionAction
 export interface CollectorStatus { state: 'idle' | 'launching' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'closed' | 'error'; changedAt: string; qrExpiresAt?: string; errorCode?: string }
 export interface CollectorQr { bytes: Buffer; etag: string; expires: string }
 export interface CollectorCollectionStatus { runId: string | null; state: 'idle' | 'running' | 'completed' | 'failed'; stage: 'account' | 'notes' | 'metrics' | 'comments' | 'replies' | 'writing' | 'reports' | 'complete'; processed: number; total: number; incompleteNotes: number; changedAt: string; errorCode?: 'collector_collection_failed' }
-interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch }
+interface ImportOptions { db: DatabaseClient; runId: string; accountPlatformId: string }
+interface ImportSummary { accountId: string; notesChanged: number; snapshotsChanged: number; commentsChanged: number; incompleteNotes: number; sha256: string }
+interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; importer?: (events: Iterable<unknown>, options: ImportOptions) => Promise<ImportSummary>; db?: DatabaseClient; sleep?: (milliseconds: number) => Promise<void>; accountPlatformId?: string }
 
 @Injectable()
 export class LocalCollectorService {
   private readonly configuration: Configuration;
+  private readonly imports = new Map<string, 'running' | 'completed' | 'failed'>();
 
   constructor(configuration?: Configuration) {
     this.configuration = configuration ?? {
@@ -18,6 +22,24 @@ export class LocalCollectorService {
       url: process.env.LOCAL_XHS_COLLECTOR_URL ?? 'http://127.0.0.1:43127',
       token: process.env.LOCAL_XHS_COLLECTOR_TOKEN ?? '',
     };
+  }
+
+  async startSync() {
+    const status = await this.action('sync');
+    if (status.runId && this.imports.get(status.runId) !== 'running') {
+      this.imports.set(status.runId, 'running');
+      void this.importRun(status.runId);
+    }
+    return status;
+  }
+
+  async syncStatus() {
+    const status = await this.action('sync-status');
+    if (!status.runId) return status;
+    const imported = this.imports.get(status.runId);
+    if (imported === 'failed') return { ...status, state: 'failed' as const, errorCode: 'collector_collection_failed' as const };
+    if (status.state === 'completed' && imported === 'running') return { ...status, state: 'running' as const, stage: 'writing' as const };
+    return status;
   }
 
   action(action: CollectorSessionAction): Promise<CollectorStatus>;
@@ -52,7 +74,7 @@ export class LocalCollectorService {
     if (response.headers.get('content-type') !== 'image/png') throw new ServiceUnavailableException('collector_qr_content_type_invalid');
     const declared = Number(response.headers.get('content-length') ?? 0);
     if (declared > 1024 * 1024) throw new ServiceUnavailableException('collector_qr_too_large');
-    const bytes = await readBoundedBody(response, 1024 * 1024);
+    const bytes = await readBoundedBytes(response, 1024 * 1024, 'collector_qr_too_large');
     if (!validQrPng(bytes)) throw new ServiceUnavailableException('collector_qr_invalid');
     const etag = response.headers.get('etag');
     const expires = response.headers.get('expires');
@@ -60,6 +82,40 @@ export class LocalCollectorService {
       throw new ServiceUnavailableException('collector_qr_metadata_invalid');
     }
     return { bytes, etag, expires };
+  }
+
+  private async importRun(runId: string) {
+    try {
+      let status: CollectorCollectionStatus | null = null;
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        status = await this.action('sync-status');
+        if (status.runId !== runId) throw new Error('collector_run_changed');
+        if (status.state === 'failed') throw new Error('collector_collection_failed');
+        if (status.state === 'completed') break;
+        await (this.configuration.sleep ?? delay)(500);
+      }
+      if (status?.state !== 'completed') throw new Error('collector_collection_timeout');
+      const events = await this.events(runId);
+      const importer = this.configuration.importer ?? importSelfScrapeCollection;
+      await importer(events, { db: this.configuration.db ?? prisma, runId, accountPlatformId: this.configuration.accountPlatformId ?? process.env.LOCAL_XHS_ACCOUNT_PLATFORM_ID ?? 'local-creator' });
+      this.imports.set(runId, 'completed');
+    } catch {
+      this.imports.set(runId, 'failed');
+    }
+  }
+
+  private async events(runId: string) {
+    this.assertConfiguration();
+    const response = await (this.configuration.fetcher ?? fetch)(`${this.configuration.url}/v1/collection/events?runId=${encodeURIComponent(runId)}`, { method: 'GET', headers: { authorization: `Bearer ${this.configuration.token}` }, signal: AbortSignal.timeout(30_000) }).catch(() => { throw new ServiceUnavailableException('collector_unavailable'); });
+    if (!response.ok) throw new ServiceUnavailableException('collector_unavailable');
+    const declared = Number(response.headers.get('content-length') ?? 0);
+    if (declared > 50 * 1024 * 1024) throw new ServiceUnavailableException('collector_events_too_large');
+    const bytes = await readBoundedBytes(response, 50 * 1024 * 1024, 'collector_events_too_large');
+    let body: unknown; try { body = JSON.parse(bytes.toString('utf8')); } catch { throw new ServiceUnavailableException('collector_response_invalid'); }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ServiceUnavailableException('collector_response_invalid');
+    const value = body as Record<string, unknown>;
+    if (Object.keys(value).some((key) => !['runId', 'events'].includes(key)) || value.runId !== runId || !Array.isArray(value.events) || value.events.length > 1_000_000) throw new ServiceUnavailableException('collector_response_invalid');
+    return value.events;
   }
 
   private assertConfiguration() {
@@ -91,7 +147,7 @@ function isCollectorStatus(value: unknown): value is CollectorStatus {
   return changedAt && qrExpiresAt && ['idle', 'launching', 'awaiting_scan', 'authenticated', 'verification_required', 'expired', 'closed', 'error'].includes(String(body.state)) && (body.errorCode === undefined || body.errorCode === 'collector_launch_failed');
 }
 
-async function readBoundedBody(response: Response, maxBytes: number) {
+async function readBoundedBytes(response: Response, maxBytes: number, code: string) {
   const reader = response.body?.getReader();
   if (!reader) return Buffer.alloc(0);
   const chunks: Uint8Array[] = [];
@@ -102,12 +158,14 @@ async function readBoundedBody(response: Response, maxBytes: number) {
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel().catch(() => undefined);
-      throw new ServiceUnavailableException('collector_qr_too_large');
+      throw new ServiceUnavailableException(code);
     }
     chunks.push(value);
   }
   return Buffer.concat(chunks, total);
 }
+
+function delay(milliseconds: number) { return new Promise<void>((resolve) => setTimeout(resolve, milliseconds)); }
 
 function validQrPng(bytes: Buffer) {
   if (bytes.byteLength < 24 || !bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return false;

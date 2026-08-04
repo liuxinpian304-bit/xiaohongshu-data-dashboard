@@ -38,6 +38,10 @@ describe('importSelfScrapeFile', () => {
     expect(await prisma.metricSnapshot.count({ where: { source: 'self-scrape', authoritativePeriod: false } })).toBe(3);
     expect(await prisma.metricSnapshot.findFirstOrThrow({ where: { source: 'self-scrape', metricDefinition: { key: 'views' } } })).toMatchObject({ availability: 'not_provided', value: null });
     expect(await prisma.syncJob.findUniqueOrThrow({ where: { externalJobId: summary.runId! } })).toMatchObject({ accountId: account.id, status: 'succeeded', currentStage: 'complete', payload: expect.objectContaining({ source: 'self-scrape', sha256: summary.sha256, validLines: 1, invalidLines: 0 }) });
+    expect(await prisma.auditLog.findMany({ where: { entityType: 'SelfScrapeImportRun', entityId: summary.runId! }, orderBy: { createdAt: 'asc' } })).toEqual([
+      expect.objectContaining({ action: 'self_scrape.import_started', actor: 'local-cli' }),
+      expect.objectContaining({ action: 'self_scrape.import_succeeded', actor: 'local-cli', details: expect.objectContaining({ sha256: summary.sha256, validLines: 1, invalidLines: 0 }) }),
+    ]);
   });
 
   it('replays equal observations as no-ops and appends revisions for changed values', async () => {
@@ -77,5 +81,9 @@ describe('importSelfScrapeFile', () => {
 
     await expect(importSelfScrapeFile({ file, accountPlatformId: 'second-account', commit: true, db: prisma })).rejects.toThrow('different account');
     expect(await prisma.account.count({ where: { connectorType: 'self-scrape' } })).toBe(1);
+    const failed = await prisma.auditLog.findFirstOrThrow({ where: { action: 'self_scrape.import_failed' }, orderBy: { createdAt: 'desc' } });
+    expect(failed).toMatchObject({ actor: 'local-cli', entityType: 'SelfScrapeImportRun', details: expect.objectContaining({ code: 'Error' }) });
+    expect(JSON.stringify(failed.details)).not.toContain('second-account');
+    expect(JSON.stringify(failed.details)).not.toContain(record.note.title);
   });
 });

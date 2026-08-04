@@ -30,26 +30,31 @@ export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Pr
   const runId = options.commit ? `self-scrape-import-${randomUUID()}` : null;
   let notesChanged = 0;
   let snapshotsChanged = 0;
+  const accountTargetHash = createHash('sha256').update(options.accountPlatformId).digest('hex');
+  if (runId) await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_started', entityType: 'SelfScrapeImportRun', entityId: runId, details: { accountTargetHash } } });
+  try {
+    for await (const entry of parsed.entries) {
+      if (!entry.ok || !options.commit) continue;
+      const result = await commitRecord(options.db, options.accountPlatformId, entry.record, runId!);
+      notesChanged += result.noteChanged ? 1 : 0;
+      snapshotsChanged += result.snapshotsChanged;
+    }
 
-  for await (const entry of parsed.entries) {
-    if (!entry.ok || !options.commit) continue;
-    const result = await commitRecord(options.db, options.accountPlatformId, entry.record, runId!);
-    notesChanged += result.noteChanged ? 1 : 0;
-    snapshotsChanged += result.snapshotsChanged;
+    const dryRun = await parsed.summary;
+    if (runId) {
+      const account = await options.db.account.upsert({
+        where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: options.accountPlatformId } },
+        create: { connectorType: 'self-scrape', platformId: options.accountPlatformId }, update: {},
+      });
+      const details = { source: 'self-scrape', sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines, notesChanged, snapshotsChanged };
+      await options.db.syncJob.create({ data: { externalJobId: runId, accountId: account.id, status: 'succeeded', currentStage: 'complete', startedAt: new Date(), completedAt: new Date(), payload: details } });
+      await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_succeeded', entityType: 'SelfScrapeImportRun', entityId: runId, details } });
+    }
+    return { ...dryRun, runId, notesChanged, snapshotsChanged };
+  } catch (error) {
+    if (runId) await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_failed', entityType: 'SelfScrapeImportRun', entityId: runId, details: { code: error instanceof Error ? error.name : 'UnknownError', notesChanged, snapshotsChanged } } }).catch(() => undefined);
+    throw error;
   }
-
-  const dryRun = await parsed.summary;
-  if (runId) {
-    const account = await options.db.account.upsert({
-      where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: options.accountPlatformId } },
-      create: { connectorType: 'self-scrape', platformId: options.accountPlatformId }, update: {},
-    });
-    await options.db.syncJob.create({ data: {
-      externalJobId: runId, accountId: account.id, status: 'succeeded', currentStage: 'complete', startedAt: new Date(), completedAt: new Date(),
-      payload: { source: 'self-scrape', sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines, notesChanged, snapshotsChanged },
-    } });
-  }
-  return { ...dryRun, runId, notesChanged, snapshotsChanged };
 }
 
 async function commitRecord(db: DatabaseClient, accountPlatformId: string, record: NormalizedSelfScrapeRecord, runId: string) {

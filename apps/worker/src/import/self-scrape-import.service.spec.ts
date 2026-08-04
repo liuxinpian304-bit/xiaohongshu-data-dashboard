@@ -1,4 +1,5 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
@@ -86,5 +87,14 @@ describe('importSelfScrapeFile', () => {
     expect(failed).toMatchObject({ actor: 'local-cli', entityType: 'SelfScrapeImportRun', details: expect.objectContaining({ code: 'Error', sha256: expect.stringMatching(/^[a-f0-9]{64}$/), totalLines: 1, validLines: 1, invalidLines: 0 }) });
     expect(JSON.stringify(failed.details)).not.toContain('second-account');
     expect(JSON.stringify(failed.details)).not.toContain(record.note.title);
+  });
+
+  it('audits unreadable commit inputs without leaking the file path', async () => {
+    const missingFile = join(tmpdir(), `missing-${randomUUID()}.jsonl`);
+    await expect(importSelfScrapeFile({ file: missingFile, accountPlatformId: 'missing-file-account', commit: true, db: prisma })).rejects.toThrow();
+    const failed = await prisma.auditLog.findFirstOrThrow({ where: { action: 'self_scrape.import_failed' }, orderBy: { createdAt: 'desc' } });
+    expect(await prisma.auditLog.count({ where: { entityId: failed.entityId, action: 'self_scrape.import_started' } })).toBe(1);
+    expect(failed.details).toMatchObject({ code: 'Error', sha256: null, totalLines: null });
+    expect(JSON.stringify(failed.details)).not.toContain(missingFile);
   });
 });

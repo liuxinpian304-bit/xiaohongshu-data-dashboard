@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 
 import type { DatabaseClient } from '@xhs/database';
 import { parseSelfScrapeJsonl, type NormalizedSelfScrapeRecord } from '@xhs/self-scrape-import';
@@ -29,15 +33,18 @@ export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Pr
   const runId = options.commit ? `self-scrape-import-${randomUUID()}` : null;
   let notesChanged = 0;
   let snapshotsChanged = 0;
-  const validation = parseSelfScrapeJsonl(createReadStream(options.file));
-  for await (const _entry of validation.entries) { /* validate and summarize before any write */ }
-  const dryRun = await validation.summary;
-  if (!options.commit) return { ...dryRun, runId, notesChanged, snapshotsChanged };
-
+  let dryRun: Awaited<ReturnType<typeof summarizeFile>> | undefined;
+  let spoolDirectory: string | undefined;
   const accountTargetHash = createHash('sha256').update(options.accountPlatformId).digest('hex');
-  await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_started', entityType: 'SelfScrapeImportRun', entityId: runId!, details: { accountTargetHash, sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines } } });
-  const parsed = parseSelfScrapeJsonl(createReadStream(options.file));
+  if (runId) await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_started', entityType: 'SelfScrapeImportRun', entityId: runId, details: { accountTargetHash } } });
   try {
+    spoolDirectory = await mkdtemp(join(tmpdir(), 'xhs-self-import-spool-'));
+    const spoolFile = join(spoolDirectory, 'input.jsonl');
+    await pipeline(createReadStream(options.file), createWriteStream(spoolFile, { flags: 'wx', mode: 0o600 }));
+    dryRun = await summarizeFile(spoolFile);
+    if (!options.commit) return { ...dryRun, runId, notesChanged, snapshotsChanged };
+
+    const parsed = parseSelfScrapeJsonl(createReadStream(spoolFile));
     for await (const entry of parsed.entries) {
       if (!entry.ok) continue;
       const result = await commitRecord(options.db, options.accountPlatformId, entry.record, runId!);
@@ -45,8 +52,7 @@ export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Pr
       snapshotsChanged += result.snapshotsChanged;
     }
 
-    const committedFile = await parsed.summary;
-    if (committedFile.sha256 !== dryRun.sha256) throw new Error('input file changed after validation');
+    await parsed.summary;
     const account = await options.db.account.upsert({
       where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: options.accountPlatformId } },
       create: { connectorType: 'self-scrape', platformId: options.accountPlatformId }, update: {},
@@ -58,9 +64,17 @@ export async function importSelfScrapeFile(options: SelfScrapeImportOptions): Pr
     });
     return { ...dryRun, runId, notesChanged, snapshotsChanged };
   } catch (error) {
-    await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_failed', entityType: 'SelfScrapeImportRun', entityId: runId!, details: { code: error instanceof Error ? error.name : 'UnknownError', sha256: dryRun.sha256, totalBytes: dryRun.totalBytes, totalLines: dryRun.totalLines, validLines: dryRun.validLines, invalidLines: dryRun.invalidLines, notesChanged, snapshotsChanged } } }).catch(() => undefined);
+    if (runId) await options.db.auditLog.create({ data: { actor: 'local-cli', action: 'self_scrape.import_failed', entityType: 'SelfScrapeImportRun', entityId: runId, details: { code: error instanceof Error ? error.name : 'UnknownError', sha256: dryRun?.sha256 ?? null, totalBytes: dryRun?.totalBytes ?? null, totalLines: dryRun?.totalLines ?? null, validLines: dryRun?.validLines ?? null, invalidLines: dryRun?.invalidLines ?? null, notesChanged, snapshotsChanged } } }).catch(() => undefined);
     throw error;
+  } finally {
+    if (spoolDirectory) await rm(spoolDirectory, { recursive: true, force: true });
   }
+}
+
+async function summarizeFile(file: string) {
+  const parsed = parseSelfScrapeJsonl(createReadStream(file));
+  for await (const _entry of parsed.entries) { /* consume without retaining records */ }
+  return parsed.summary;
 }
 
 async function commitRecord(db: DatabaseClient, accountPlatformId: string, record: NormalizedSelfScrapeRecord, runId: string) {

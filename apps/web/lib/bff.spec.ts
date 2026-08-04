@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { mutationHeaders, parseAdminSession, parseLoginCookies, readBoundedJson, validateMutationRequest } from './bff';
+import { cookieSecureForOrigin, mutationHeaders, parseAdminSession, parseLoginCookies, readBoundedJson, validateMutationRequest } from './bff';
 
 describe('mutation BFF boundary', () => {
+  it('uses Secure cookies only when the configured dashboard origin is HTTPS', () => {
+    expect(cookieSecureForOrigin('http://127.0.0.1:3000')).toBe(false);
+    expect(cookieSecureForOrigin('https://dashboard.example.com')).toBe(true);
+  });
   it('accepts the default local dashboard origin including its port', () => {
     expect(() => validateMutationRequest(new Request('http://127.0.0.1:3000/api/control/local-collector/sync', {
       method: 'POST',

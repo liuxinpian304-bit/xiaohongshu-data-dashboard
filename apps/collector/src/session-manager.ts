@@ -5,10 +5,11 @@ import { chromium } from 'playwright';
 import { collectCreatorEvents, type CreatorCollectionEvent } from './creator-collection';
 import type { CollectionProgress } from './collection-run';
 import type { CreatorCommentRecord, CreatorNoteRecord } from './creator-payload';
+import type { XhsAccountIdentity } from './xhs-account-identity';
 import { XhsPageAdapter, type XhsPageSurface } from './xhs-page-adapter';
 
 export type SessionState = 'idle' | 'launching' | 'browser_open' | 'user_confirmed' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'closed' | 'error';
-export interface SessionStatus { state: SessionState; changedAt: string; qrExpiresAt?: string; errorCode?: 'collector_launch_failed' }
+export interface SessionStatus { state: SessionState; changedAt: string; qrExpiresAt?: string; errorCode?: 'collector_launch_failed'; identity?: XhsAccountIdentity; identityVerifiedAt?: string }
 export interface QrSnapshot { bytes: Buffer; contentType: 'image/png'; expiresAt: string; etag: string }
 interface BrowserHandle { close(): Promise<void>; page?: XhsPageSurface }
 interface LaunchOptions { profileDirectory: string; headless: false; url: string }
@@ -16,6 +17,7 @@ interface PageAdapter {
   prepareLogin?(): Promise<void>;
   detectLoginState(): Promise<'loading' | 'awaiting_scan' | 'authenticated' | 'verification_required'>;
   captureQr(): Promise<Buffer>;
+  readAccountIdentity?(): Promise<XhsAccountIdentity>;
   collectVisibleRecords?(capturedAt?: string): Promise<{ notes: CreatorNoteRecord[]; comments: CreatorCommentRecord[] }>;
 }
 
@@ -31,6 +33,7 @@ export class LocalXhsSessionManager {
   private launching: Promise<SessionStatus> | null = null;
   private qrSnapshot: QrSnapshot | null = null;
   private adapter: PageAdapter | null;
+  private boundPlatformId: string | null = null;
 
   constructor(private readonly options: SessionManagerOptions) {
     this.adapter = options.adapter ?? null;
@@ -57,6 +60,15 @@ export class LocalXhsSessionManager {
       return this.status();
     } else {
       this.destroyQr();
+    }
+    if (state === 'authenticated') {
+      if (!this.adapter.readAccountIdentity) throw new Error('collector_identity_unavailable');
+      const identity = await this.adapter.readAccountIdentity();
+      this.boundPlatformId ??= identity.platformId;
+      if (identity.platformId !== this.boundPlatformId) throw new Error('collector_identity_mismatch');
+      const identityVerifiedAt = new Date().toISOString();
+      this.current = { state, changedAt: identityVerifiedAt, identity, identityVerifiedAt };
+      return this.status();
     }
     this.setState(state);
     return this.status();
@@ -91,6 +103,9 @@ export class LocalXhsSessionManager {
 
   async collect(progress: (value: CollectionProgress) => void, emit: (event: CreatorCollectionEvent) => void, runId: string, capturedAt = new Date().toISOString()) {
     if (!this.adapter || await this.adapter.detectLoginState() !== 'authenticated') throw new Error('collector_authentication_required');
+    if (!this.adapter.readAccountIdentity || !this.boundPlatformId) throw new Error('collector_identity_unavailable');
+    const identity = await this.adapter.readAccountIdentity();
+    if (identity.platformId !== this.boundPlatformId) throw new Error('collector_identity_mismatch');
     if (!this.adapter.collectVisibleRecords) throw new Error('collector_page_changed');
     await collectCreatorEvents(this.adapter as Required<Pick<PageAdapter, 'collectVisibleRecords'>>, progress, emit, runId, capturedAt);
   }

@@ -6,11 +6,37 @@ import { describe, expect, it, vi } from 'vitest';
 import { LocalXhsSessionManager } from './session-manager';
 
 describe('LocalXhsSessionManager', () => {
+  it('binds authenticated status and collection to the same verified account identity', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
+    const readAccountIdentity = vi.fn()
+      .mockResolvedValueOnce({ platformId: 'user-1', xhsAccountId: 'red-1', displayName: '真实昵称', avatarUrl: null })
+      .mockResolvedValueOnce({ platformId: 'user-2', xhsAccountId: 'red-2', displayName: '另一个账号', avatarUrl: null });
+    const manager = new LocalXhsSessionManager({
+      profileDirectory: join(root, 'profile'),
+      launch: async () => ({ close: async () => undefined }),
+      adapter: {
+        detectLoginState: async () => 'authenticated',
+        captureQr: async () => Buffer.from([]),
+        readAccountIdentity,
+        collectVisibleRecords: async () => ({ notes: [], comments: [] }),
+      },
+    });
+
+    await expect(manager.start()).resolves.toMatchObject({
+      state: 'authenticated',
+      identity: { platformId: 'user-1', xhsAccountId: 'red-1', displayName: '真实昵称', avatarUrl: null },
+      identityVerifiedAt: expect.any(String),
+    });
+    await expect(manager.collect(() => undefined, () => undefined, 'run-mismatch')).rejects.toThrow('collector_identity_mismatch');
+    expect(JSON.stringify(manager.status())).not.toMatch(/cookie|storage|profile|token/i);
+  });
+
   it('reports authentication only after the creator page proves login', async () => {
     const root = await mkdtemp(join(tmpdir(), 'xhs-profile-test-'));
     const adapter = {
       detectLoginState: vi.fn(async () => 'authenticated' as const),
       captureQr: vi.fn(async () => Buffer.from([])),
+      readAccountIdentity: vi.fn(async () => ({ platformId: 'user-authenticated', xhsAccountId: null, displayName: '已登录账号', avatarUrl: null })),
     };
     const manager = new LocalXhsSessionManager({
       profileDirectory: join(root, 'profile'),
@@ -141,6 +167,7 @@ describe('LocalXhsSessionManager', () => {
       adapter: {
         detectLoginState: async () => 'authenticated',
         captureQr: async () => Buffer.from([]),
+        readAccountIdentity: async () => ({ platformId: 'user-collection', xhsAccountId: null, displayName: '本人账号', avatarUrl: null }),
         collectVisibleRecords: async () => ({
           notes: [{ platformId: 'note-1', title: '本人笔记', publishedAt: '2026-08-03T02:00:00.000Z', capturedAt: '2026-08-04T07:00:00.000Z', metrics: { views: null, likes: 5, comments: 0 } }],
           comments: [],

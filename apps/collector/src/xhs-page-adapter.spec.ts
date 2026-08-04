@@ -140,6 +140,37 @@ describe('XhsPageAdapter', () => {
     await expect(new XhsPageAdapter(page as any).readAccountIdentity()).rejects.toThrow('collector_identity_unavailable');
   });
 
+  it('combines stable response identifiers with the visible creator header identity', async () => {
+    const listeners = new Set<(response: any) => void>();
+    const response = {
+      url: () => 'https://creator.xiaohongshu.com/api/user/info',
+      headers: () => ({ 'content-type': 'application/json' }),
+      json: async () => ({ data: { userId: '69be0662000000003402dda1', redId: '95874286519' } }),
+    };
+    const page = {
+      url: () => 'https://creator.xiaohongshu.com/new/home',
+      locator: (selector: string) => ({
+        first: () => ({ isVisible: async () => selector === 'text=数据看板', screenshot: async () => Buffer.from([]), click: async () => undefined, evaluate: async () => ({ width: 0, height: 0 }) }),
+        all: async () => selector === 'img' ? [{
+          isVisible: async () => true,
+          evaluate: async (fn: (element: any) => unknown) => fn({
+            getAttribute: (name: string) => name === 'src' ? 'https://sns-avatar-qc.xhscdn.com/avatar/account.jpg' : '',
+            parentElement: { textContent: '南瓜汤与瓜子仁 退出登录' },
+          }),
+        }] : [],
+      }),
+      on: (_event: 'response', listener: (value: any) => void) => listeners.add(listener),
+      off: (_event: 'response', listener: (value: any) => void) => listeners.delete(listener),
+      goto: async () => { for (const listener of listeners) listener(response); },
+      waitForTimeout: async () => undefined,
+    };
+
+    await expect(new XhsPageAdapter(page as any).readAccountIdentity()).resolves.toEqual({
+      platformId: '69be0662000000003402dda1', xhsAccountId: '95874286519',
+      displayName: '南瓜汤与瓜子仁', avatarUrl: 'https://sns-avatar-qc.xhscdn.com/avatar/account.jpg',
+    });
+  });
+
   it('waits for a delayed creator response instead of returning an unproven empty account', async () => {
     const listeners = new Set<(response: any) => void>();
     let waits = 0;

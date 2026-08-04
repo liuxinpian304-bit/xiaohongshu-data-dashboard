@@ -1,5 +1,5 @@
 import { parseCreatorPayload, type CreatorCommentRecord, type CreatorNoteRecord } from './creator-payload';
-import { parseXhsAccountIdentity, type XhsAccountIdentity } from './xhs-account-identity';
+import { parseXhsAccountIdentifiers, parseXhsAccountIdentity, type XhsAccountIdentifiers, type XhsAccountIdentity } from './xhs-account-identity';
 
 export type DetectedLoginState = 'loading' | 'awaiting_scan' | 'authenticated' | 'verification_required';
 interface XhsElementSurface {
@@ -7,7 +7,7 @@ interface XhsElementSurface {
   screenshot(options: { type: 'png' }): Promise<Buffer>;
   click(): Promise<void>;
   isEnabled?(): Promise<boolean>;
-  evaluate<TResult>(fn: (element: { clientWidth: number; clientHeight: number }) => TResult): Promise<TResult>;
+  evaluate<TResult>(fn: (element: any) => TResult): Promise<TResult>;
 }
 export interface XhsPageSurface {
   url(): string;
@@ -103,16 +103,23 @@ export class XhsPageAdapter {
     if (!this.page.on || !this.page.off || !this.page.goto) throw new Error('collector_identity_unavailable');
     const pending = new Set<Promise<void>>();
     let identity: XhsAccountIdentity | null = null;
+    let identifiers: XhsAccountIdentifiers | null = null;
     const listener = (response: XhsResponseSurface) => {
-      const task = this.consumeIdentityResponse(response).then((value) => { identity ??= value; }).finally(() => pending.delete(task));
+      const task = this.consumeIdentityResponse(response).then((value) => {
+        identity ??= value.identity;
+        identifiers ??= value.identifiers;
+      }).finally(() => pending.delete(task));
       pending.add(task);
     };
     this.page.on('response', listener);
     try {
       await this.page.goto('https://creator.xiaohongshu.com/new/note-manager', { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await this.settleResponses(pending, () => identity !== null, 40);
-      if (!identity) throw new Error('collector_identity_unavailable');
-      return identity;
+      await this.settleResponses(pending, () => identity !== null || identifiers !== null, 40);
+      if (identity) return identity;
+      const header = await this.readHeaderIdentity();
+      const verifiedIdentifiers = identifiers as XhsAccountIdentifiers | null;
+      if (!verifiedIdentifiers || !header) throw new Error('collector_identity_unavailable');
+      return { ...verifiedIdentifiers, ...header };
     } finally {
       this.page.off('response', listener);
     }
@@ -181,15 +188,35 @@ export class XhsPageAdapter {
     } catch { /* Ignore unrelated or structurally unsafe creator responses. */ }
   }
 
-  private async consumeIdentityResponse(response: XhsResponseSurface) {
+  private async consumeIdentityResponse(response: XhsResponseSurface): Promise<{ identity: XhsAccountIdentity | null; identifiers: XhsAccountIdentifiers | null }> {
+    const empty = { identity: null, identifiers: null };
     let url: URL;
-    try { url = new URL(response.url()); } catch { return null; }
-    if (url.origin !== 'https://creator.xiaohongshu.com') return null;
+    try { url = new URL(response.url()); } catch { return empty; }
+    if (url.origin !== 'https://creator.xiaohongshu.com') return empty;
     const headers = await response.headers();
-    if (!headers['content-type']?.toLowerCase().includes('json')) return null;
+    if (!headers['content-type']?.toLowerCase().includes('json')) return empty;
     const declared = Number(headers['content-length'] ?? 0);
-    if (Number.isFinite(declared) && declared > 5_000_000) return null;
-    try { return parseXhsAccountIdentity(await response.json()); } catch { return null; }
+    if (Number.isFinite(declared) && declared > 5_000_000) return empty;
+    try {
+      const payload = await response.json();
+      return { identity: parseXhsAccountIdentity(payload), identifiers: parseXhsAccountIdentifiers(payload) };
+    } catch { return empty; }
+  }
+
+  private async readHeaderIdentity(): Promise<Pick<XhsAccountIdentity, 'displayName' | 'avatarUrl'> | null> {
+    const images = await this.page.locator('img').all();
+    for (const image of images.slice(0, 100)) {
+      if (!await image.isVisible()) continue;
+      const hint = await image.evaluate((element) => ({ src: element.getAttribute('src'), parentText: element.parentElement?.textContent ?? '' }));
+      if (!hint.src) continue;
+      let avatar: URL;
+      try { avatar = new URL(hint.src); } catch { continue; }
+      if (avatar.protocol !== 'https:' || !avatar.hostname.endsWith('xhscdn.com')) continue;
+      const displayName = hint.parentText.replace(/退出登录/g, '').trim();
+      if (!displayName || displayName.length > 200) continue;
+      return { displayName, avatarUrl: avatar.href };
+    }
+    return null;
   }
 
   private async settleResponses(pending: Set<Promise<void>>, ready: () => boolean = () => true, attempts = 1) {

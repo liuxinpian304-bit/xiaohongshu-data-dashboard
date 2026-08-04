@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseXhsAccountIdentity } from './xhs-account-identity';
+import { parseXhsAccountIdentifiers, parseXhsAccountIdentity } from './xhs-account-identity';
 
 describe('parseXhsAccountIdentity', () => {
   it('copies only bounded public identity fields from an authenticated profile payload', () => {
@@ -33,6 +33,13 @@ describe('parseXhsAccountIdentity', () => {
       xhsAccountId: null,
       displayName: '账号',
       avatarUrl: null,
+    });
+  });
+
+  it('extracts stable identifiers when the creator response keeps display data in the page header', () => {
+    expect(parseXhsAccountIdentifiers({ data: { userId: '69be0662000000003402dda1', redId: '95874286519' } })).toEqual({
+      platformId: '69be0662000000003402dda1',
+      xhsAccountId: '95874286519',
     });
   });
 });

@@ -5,6 +5,8 @@ export interface XhsAccountIdentity {
   avatarUrl: string | null;
 }
 
+export interface XhsAccountIdentifiers { platformId: string; xhsAccountId: string | null }
+
 const platformIdKeys = ['user_id', 'userId', 'userid'] as const;
 const accountIdKeys = ['red_id', 'redId', 'redid'] as const;
 const displayNameKeys = ['nickname', 'nickName', 'name'] as const;
@@ -31,6 +33,21 @@ export function parseXhsAccountIdentity(value: unknown): XhsAccountIdentity | nu
         avatarUrl: safeAvatar(boundedString(candidate, avatarKeys, 2_048)),
       };
     }
+    queue.push(...Object.values(candidate).slice(0, 200));
+  }
+  return null;
+}
+
+export function parseXhsAccountIdentifiers(value: unknown): XhsAccountIdentifiers | null {
+  const queue: unknown[] = [value];
+  let visited = 0;
+  while (queue.length && visited < 2_000) {
+    const candidate = queue.shift();
+    visited += 1;
+    if (Array.isArray(candidate)) { queue.push(...candidate.slice(0, 200)); continue; }
+    if (!plainObject(candidate)) continue;
+    const platformId = boundedString(candidate, platformIdKeys);
+    if (platformId) return { platformId, xhsAccountId: boundedString(candidate, accountIdKeys) };
     queue.push(...Object.values(candidate).slice(0, 200));
   }
   return null;

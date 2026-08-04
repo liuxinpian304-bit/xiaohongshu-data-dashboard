@@ -51,4 +51,25 @@ describe('importSelfScrapeFile', () => {
     expect(await prisma.metricSnapshot.count({ where: { source: 'self-scrape' } })).toBe(4);
     expect(await prisma.metricSnapshot.findFirstOrThrow({ where: { source: 'self-scrape', metricDefinition: { key: 'likes' }, supersededAt: null } })).toMatchObject({ revision: 2 });
   });
+
+  it('performs a dry-run without writing any database rows', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'xhs-self-dry-run-'));
+    const file = join(directory, 'my_notes.jsonl');
+    await writeFile(file, `${JSON.stringify(record)}\n`);
+
+    expect(await importSelfScrapeFile({ file, accountPlatformId: 'dry-account', commit: false, db: prisma })).toMatchObject({ validLines: 1, invalidLines: 0, notesChanged: 0, snapshotsChanged: 0 });
+    expect(await prisma.account.count({ where: { connectorType: 'self-scrape' } })).toBe(0);
+    expect(await prisma.note.count({ where: { connectorType: 'self-scrape' } })).toBe(0);
+    expect(await prisma.metricSnapshot.count({ where: { source: 'self-scrape' } })).toBe(0);
+  });
+
+  it('rejects a platform note id already owned by another self-scrape account', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'xhs-self-conflict-'));
+    const file = join(directory, 'my_notes.jsonl');
+    await writeFile(file, `${JSON.stringify(record)}\n`);
+    await importSelfScrapeFile({ file, accountPlatformId: 'first-account', commit: true, db: prisma });
+
+    await expect(importSelfScrapeFile({ file, accountPlatformId: 'second-account', commit: true, db: prisma })).rejects.toThrow('different account');
+    expect(await prisma.account.count({ where: { connectorType: 'self-scrape' } })).toBe(1);
+  });
 });

@@ -90,7 +90,7 @@ function byteLimit(maxFileBytes: number) {
   });
 }
 
-async function commitRecord(db: DatabaseClient, accountPlatformId: string, record: NormalizedSelfScrapeRecord, runId: string) {
+export async function commitRecord(db: DatabaseClient, accountPlatformId: string, record: NormalizedSelfScrapeRecord, runId: string) {
   return db.$transaction(async (tx) => {
     const account = await tx.account.upsert({
       where: { connectorType_platformId: { connectorType: 'self-scrape', platformId: accountPlatformId } },

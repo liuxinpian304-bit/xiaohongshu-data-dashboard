@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { DailyDashboardContent } from '../../../components/daily-dashboard-content';
 import { MetricCard } from '../../../components/metric-card';
 import { MetricTrendChart } from '../../../components/metric-trend-chart';
 import { PeriodTabs } from '../../../components/period-tabs';
@@ -57,7 +58,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const invalidMessage = invalidAccount ? '所选账号不存在、授权已过期或已停用，请重新选择已授权的官方账号。' : `${dashboardResult.message}，请检查服务状态后重试。`;
     return (
       <div className="dashboard-page">
-        <header className="dashboard-heading dashboard-heading--error"><div><h1>昨日数据</h1><p>按上海时区生成，官方数据未到齐时会明确标记。</p></div><PeriodTabs period={period} accountId={accountId} /></header>
+        <header className="dashboard-heading dashboard-heading--error"><div><h1>{period === 'daily' ? '每日数据' : periodLabels[period]}</h1><p>按上海时区生成，数据未到齐时会明确标记。</p></div><PeriodTabs period={period} accountId={accountId} /></header>
         <section className="load-error" role="alert"><span aria-hidden="true">!</span><h2>{invalidAccount ? '账号不可用' : '数据暂时无法加载'}</h2><p>{invalidMessage}</p>{invalidAccount ? <Link href="/accounts">检查账号授权</Link> : <a href={`/dashboard?period=${period}${suffix}`}>重新加载</a>}</section>
       </div>
     );
@@ -72,7 +73,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   return (
     <div className="dashboard-page">
       <header className="dashboard-heading">
-        <div><h1>昨日数据</h1><p>按上海时区生成，官方数据未到齐时会明确标记。</p></div>
+        <div><h1>{period === 'daily' ? '每日数据' : periodLabels[period]}</h1><p>{period === 'daily' ? '本月每天单独展示，默认查看 1 日至昨天。' : '按上海时区生成，数据未到齐时会明确标记。'}</p></div>
         <PeriodTabs period={period} accountId={accountId} />
         <form className="account-filter" action="/dashboard" method="get"><input type="hidden" name="period" value={period} /><label htmlFor="dashboard-account">小红书账号</label><select id="dashboard-account" name="accountId" defaultValue={accountId ?? ''}><option value="">全部官方账号</option>{officialAccounts.map((account) => <option key={account.id} value={account.id}>{account.displayName || account.platformId}</option>)}</select><button type="submit">查看</button></form>
         <dl className="report-meta">
@@ -84,17 +85,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       {accountsResult.status === 'error' ? <section className="account-state" role="status">账号列表暂时无法加载，已保留当前筛选，请稍后重试。</section> : invalidAccount ? <section className="account-state" role="alert"><strong>所选账号不存在或尚未获得官方授权</strong><Link href="/accounts">检查账号授权</Link></section> : officialAccounts.length === 0 ? <section className="account-state"><strong>尚无已授权的官方账号</strong><span>请先到账号页完成官方 API 授权。</span><Link href="/accounts">管理账号</Link></section> : null}
 
-      {cards.length ? (
+      {period === 'daily' ? <DailyDashboardContent rows={dashboard.dailyRows} /> : cards.length ? (
         <section className="metric-rail" aria-label="核心指标">{cards.map(({ label, card }) => <MetricCard key={card.key} label={label} value={card.value} availability={card.availability} />)}</section>
       ) : <section className="metric-empty" aria-label="核心指标"><strong>该周期暂无指标</strong><span>官方快照到达后会显示在这里。</span></section>}
 
       <div className="dashboard-grid">
-        <section className="panel panel--trend">
+        {period !== 'daily' ? <section className="panel panel--trend">
           <div className="panel-heading"><div><h2>核心指标趋势</h2><p>展示当前报告周期的官方快照</p></div><span className="panel-meta">{trend.key ? trend.label : periodLabels[period]}</span></div>
           <MetricTrendChart label={trend.label} points={trend.points} />
-        </section>
+        </section> : null}
 
-        <section className="panel completeness-panel">
+        {period !== 'daily' ? <section className="panel completeness-panel">
           <div className="panel-heading"><div><h2>数据完整性</h2><p>按官方能力和本轮同步结果判定</p></div><strong>{coverage}%</strong></div>
           <div className="coverage-track" aria-label={`数据覆盖率 ${coverage}%`}><span style={{ width: `${coverage}%` }} /></div>
           {cards.length ? <ul className="availability-list">{cards.map(({ label, card }) => {
@@ -103,7 +104,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             return <li key={card.key}><span>{label}</span><span className="state-dot" data-ready={ready} /> <strong>{state}</strong></li>;
           })}</ul> : <p className="panel-note">本周期没有可评估的指标。</p>}
           <p className="panel-note">“已就绪”只代表已处理官方本轮返回的数据。</p>
-        </section>
+        </section> : null}
 
         <section className="panel ranking-panel">
           <div className="panel-heading"><div><h2>笔记榜单</h2><p>按当前周期的实际指标排序</p></div><Link href="/notes">查看笔记</Link></div>

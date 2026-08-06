@@ -6,9 +6,11 @@ readonly API_LABEL=com.xhs.dashboard.api
 readonly COLLECTOR_LABEL=com.xhs.dashboard.collector
 readonly SERVICE_HOME=${XHS_SERVICE_HOME:-$HOME/Library/Application Support/xiaohongshu-dashboard}
 readonly LAUNCH_AGENT_HOME=${XHS_LAUNCH_AGENT_HOME:-$HOME/Library/LaunchAgents}
-readonly REPO_ROOT=${0:A:h:h:h}
+readonly REPO_ROOT=${XHS_REPO_ROOT:-${0:A:h:h:h}}
 readonly LOG_HOME=$SERVICE_HOME/logs
 readonly RUNTIME_ENV=$SERVICE_HOME/runtime.env
+readonly LAUNCHER=$SERVICE_HOME/bin/xhs-launch
+readonly SERVICE_APP=$SERVICE_HOME/app
 readonly NODE_FALLBACK=/Users/jixiang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node
 readonly PNPM_FALLBACK=/Users/jixiang/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm
 
@@ -16,8 +18,17 @@ node_bin() {
   command -v node 2>/dev/null || print -- "$NODE_FALLBACK"
 }
 
-pnpm_bin() {
-  command -v pnpm 2>/dev/null || print -- "$PNPM_FALLBACK"
+prepare_runtime() {
+  [[ ${XHS_SKIP_RUNTIME_PREPARE:-0} == 1 ]] && return
+  local revision pnpm=$PNPM_FALLBACK
+  revision=$(git -C "$REPO_ROOT" rev-parse HEAD)
+  if [[ -e $SERVICE_APP/.git ]]; then
+    git -C "$SERVICE_APP" checkout --detach "$revision"
+  else
+    git -C "$REPO_ROOT" worktree add --detach "$SERVICE_APP" "$revision"
+  fi
+  [[ -x $pnpm ]] || { print -u2 -- "pnpm executable unavailable"; exit 69; }
+  (cd "$SERVICE_APP" && "$pnpm" install --frozen-lockfile)
 }
 
 show_paths() {
@@ -38,7 +49,9 @@ write_plist() {
 <dict>
   <key>Label</key><string>$label</string>
   <key>ProgramArguments</key>
-  <array><string>$REPO_ROOT/ops/macos/xhs-services.sh</string><string>run</string><string>$service</string></array>
+  <array><string>$LAUNCHER</string><string>$service</string></array>
+  <key>EnvironmentVariables</key>
+  <dict><key>LANG</key><string>en_US.UTF-8</string><key>LC_ALL</key><string>en_US.UTF-8</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>5</integer>
@@ -54,8 +67,18 @@ render() {
   [[ -n $password ]] || { print -u2 -- "administrator password is required"; exit 64; }
   local node=$(node_bin)
   [[ -x $node ]] || { print -u2 -- "node executable unavailable"; exit 69; }
-  mkdir -p "$SERVICE_HOME" "$LOG_HOME" "$LAUNCH_AGENT_HOME"
+  mkdir -p "$SERVICE_HOME" "$SERVICE_HOME/bin" "$LOG_HOME" "$LAUNCH_AGENT_HOME"
   chmod 700 "$SERVICE_HOME" "$LOG_HOME"
+  prepare_runtime
+  cp "$REPO_ROOT/ops/macos/xhs-services.sh" "$SERVICE_HOME/bin/xhs-services.sh"
+  chmod 700 "$SERVICE_HOME/bin/xhs-services.sh"
+  cat >| "$LAUNCHER" <<EOF
+#!/bin/zsh
+export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+export XHS_REPO_ROOT=${(q)SERVICE_APP}
+exec /bin/zsh ${(q)SERVICE_HOME}/bin/xhs-services.sh run "\$1"
+EOF
+  chmod 700 "$LAUNCHER"
   local hash credential_key collector_token
   hash=$(cd "$REPO_ROOT/apps/api" && ADMIN_PASSWORD_TEMP=$password "$node" -e 'require("argon2").hash(process.env.ADMIN_PASSWORD_TEMP,{type:require("argon2").argon2id}).then(v=>process.stdout.write(v))')
   credential_key=$($node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64"))')
@@ -81,25 +104,25 @@ load_runtime() {
 }
 
 run_service() {
-  local service=${1:-} node=$(node_bin) pnpm=$(pnpm_bin)
+  local service=${1:-} node=$(node_bin)
   load_runtime
-  export PATH="${node:h}:${pnpm:h}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  export PATH="${node:h}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
   case $service in
     web)
       export API_BASE_URL=http://127.0.0.1:3001 APP_ORIGIN=http://127.0.0.1:3000
       cd "$REPO_ROOT/apps/web"
-      exec "$pnpm" dev -- --hostname 127.0.0.1
+      exec "$node" "$REPO_ROOT/apps/web/node_modules/next/dist/bin/next" dev --hostname 127.0.0.1
       ;;
     api)
       export API_PORT=3001 APP_ORIGIN=http://127.0.0.1:3000
       export LOCAL_XHS_COLLECTOR_ENABLED=true LOCAL_XHS_COLLECTOR_URL=http://127.0.0.1:43127
       cd "$REPO_ROOT/apps/api"
-      exec "$pnpm" dev
+      exec "$node" "$REPO_ROOT/apps/api/node_modules/tsx/dist/cli.mjs" watch src/main.ts
       ;;
     collector)
       export LOCAL_XHS_COLLECTOR_ENABLED=true LOCAL_XHS_COLLECTOR_HOST=127.0.0.1 LOCAL_XHS_COLLECTOR_PORT=43127
       cd "$REPO_ROOT/apps/collector"
-      exec "$pnpm" dev
+      exec "$node" "$REPO_ROOT/apps/collector/node_modules/tsx/dist/cli.mjs" watch src/server.ts
       ;;
     *) print -u2 -- "unknown service: $service"; exit 64 ;;
   esac
@@ -119,7 +142,7 @@ start_dependencies() {
 start_services() {
   start_dependencies
   local domain="gui/$(id -u)" label plist
-  for label in ${(f)$(labels)}; do
+  for label in ${(f)"$(labels)"}; do
     plist="$LAUNCH_AGENT_HOME/$label.plist"
     [[ -f $plist ]] || { print -u2 -- "missing $plist; run install"; exit 78; }
     launchctl bootstrap "$domain" "$plist" 2>/dev/null || true
@@ -130,7 +153,7 @@ start_services() {
 
 stop_services() {
   local domain="gui/$(id -u)" label
-  for label in ${(f)$(labels)}; do
+  for label in ${(f)"$(labels)"}; do
     launchctl bootout "$domain/$label" 2>/dev/null || true
   done
 }
@@ -145,7 +168,7 @@ install_services() {
 uninstall_services() {
   stop_services
   local label
-  for label in ${(f)$(labels)}; do
+  for label in ${(f)"$(labels)"}; do
     rm -f -- "$LAUNCH_AGENT_HOME/$label.plist"
   done
 }

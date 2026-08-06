@@ -5,7 +5,7 @@ import { DailyDashboardContent } from '../../../components/daily-dashboard-conte
 import { MetricCard } from '../../../components/metric-card';
 import { MetricTrendChart } from '../../../components/metric-trend-chart';
 import { PeriodTabs } from '../../../components/period-tabs';
-import { getAuthorizedOfficialAccounts, getDashboard, getRecentNotifications, type DashboardCard, type DashboardPeriod } from '../../../lib/api';
+import { getDashboard, getRecentNotifications, getSelfScrapeAccounts, type DashboardCard, type DashboardPeriod } from '../../../lib/api';
 import { formatMetric, formatReportRange, formatShanghaiDateTime } from '../../../lib/format';
 
 const metricLabels: Record<string, string> = {
@@ -24,6 +24,7 @@ function metricLabel(key: string) {
 
 function sourceLabel(source: string | null) {
   if (source === 'official') return '官方 API';
+  if (source === 'self-scrape') return '账号自抓数据';
   if (source === 'mock') return '演示连接器';
   if (source === 'mixed') return '多个数据来源';
   return source ?? '暂无快照来源';
@@ -45,17 +46,17 @@ function chooseTrend(trend: Array<{ date: string; metrics: DashboardCard[] }>) {
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ period?: string | string[]; accountId?: string | string[] }> }) {
   const params = await searchParams; const period = normalizePeriod(params.period); const requestedAccountId = typeof params.accountId === 'string' ? params.accountId : undefined;
-  const accountsResult = await getAuthorizedOfficialAccounts();
+  const accountsResult = await getSelfScrapeAccounts();
   if (accountsResult.status === 'unauthorized') redirect(`/login?next=${encodeURIComponent(`/dashboard?period=${period}`)}`);
-  const officialAccounts = accountsResult.status === 'ok' ? accountsResult.data.items : [];
-  const invalidAccount = accountsResult.status === 'ok' && Boolean(requestedAccountId) && !officialAccounts.some(({ id }) => id === requestedAccountId);
+  const dashboardAccounts = accountsResult.status === 'ok' ? accountsResult.data.items : [];
+  const invalidAccount = accountsResult.status === 'ok' && Boolean(requestedAccountId) && !dashboardAccounts.some(({ id }) => id === requestedAccountId);
   const accountId = requestedAccountId;
-  const [dashboardResult, notificationsResult] = await Promise.all([getDashboard(period, accountId), getRecentNotifications()]);
+  const [dashboardResult, notificationsResult] = await Promise.all([getDashboard(period, accountId, 'self-scrape'), getRecentNotifications()]);
   const suffix = `${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
   if (dashboardResult.status === 'unauthorized' || notificationsResult.status === 'unauthorized') redirect(`/login?next=${encodeURIComponent(`/dashboard?period=${period}${suffix}`)}`);
 
   if (dashboardResult.status === 'error') {
-    const invalidMessage = invalidAccount ? '所选账号不存在、授权已过期或已停用，请重新选择已授权的官方账号。' : `${dashboardResult.message}，请检查服务状态后重试。`;
+    const invalidMessage = invalidAccount ? '所选真实账号不存在，请重新选择已连接的小红书账号。' : `${dashboardResult.message}，请检查服务状态后重试。`;
     return (
       <div className="dashboard-page">
         <header className="dashboard-heading dashboard-heading--error"><div><h1>{period === 'daily' ? '每日数据' : periodLabels[period]}</h1><p>按上海时区生成，数据未到齐时会明确标记。</p></div><PeriodTabs period={period} accountId={accountId} /></header>
@@ -75,7 +76,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <header className="dashboard-heading">
         <div><h1>{period === 'daily' ? '每日数据' : periodLabels[period]}</h1><p>{period === 'daily' ? '本月每天单独展示，默认查看 1 日至昨天。' : '按上海时区生成，数据未到齐时会明确标记。'}</p></div>
         <PeriodTabs period={period} accountId={accountId} />
-        <form className="account-filter" action="/dashboard" method="get"><input type="hidden" name="period" value={period} /><label htmlFor="dashboard-account">小红书账号</label><select id="dashboard-account" name="accountId" defaultValue={accountId ?? ''}><option value="">全部官方账号</option>{officialAccounts.map((account) => <option key={account.id} value={account.id}>{account.displayName || account.platformId}</option>)}</select><button type="submit">查看</button></form>
+        <form className="account-filter" action="/dashboard" method="get"><input type="hidden" name="period" value={period} /><label htmlFor="dashboard-account">小红书账号</label><select id="dashboard-account" name="accountId" defaultValue={accountId ?? ''}><option value="">全部真实账号</option>{dashboardAccounts.map((account) => <option key={account.id} value={account.id}>{account.displayName || account.platformId}</option>)}</select><button type="submit">查看</button></form>
         <dl className="report-meta">
           <div><dt>统计日期</dt><dd>{formatReportRange(dashboard.periodStart, dashboard.periodEnd)}</dd></div>
           <div><dt>最后同步</dt><dd>{dashboard.lastSyncedAt ? formatShanghaiDateTime(dashboard.lastSyncedAt) : '尚无成功同步'}</dd></div>
@@ -83,7 +84,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </dl>
       </header>
 
-      {accountsResult.status === 'error' ? <section className="account-state" role="status">账号列表暂时无法加载，已保留当前筛选，请稍后重试。</section> : invalidAccount ? <section className="account-state" role="alert"><strong>所选账号不存在或尚未获得官方授权</strong><Link href="/accounts">检查账号授权</Link></section> : officialAccounts.length === 0 ? <section className="account-state"><strong>尚无已授权的官方账号</strong><span>请先到账号页完成官方 API 授权。</span><Link href="/accounts">管理账号</Link></section> : null}
+      {accountsResult.status === 'error' ? <section className="account-state" role="status">账号列表暂时无法加载，已保留当前筛选，请稍后重试。</section> : invalidAccount ? <section className="account-state" role="alert"><strong>所选真实账号不存在</strong><Link href="/accounts">检查账号连接</Link></section> : dashboardAccounts.length === 0 ? <section className="account-state"><strong>尚无已连接的真实账号</strong><span>请先到账号页扫码登录并同步。</span><Link href="/accounts">管理账号</Link></section> : null}
 
       {period === 'daily' ? <DailyDashboardContent rows={dashboard.dailyRows} /> : cards.length ? (
         <section className="metric-rail" aria-label="核心指标">{cards.map(({ label, card }) => <MetricCard key={card.key} label={label} value={card.value} availability={card.availability} />)}</section>

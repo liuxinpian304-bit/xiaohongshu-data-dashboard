@@ -93,6 +93,7 @@ describe('dashboard API', () => {
       const limit = spec.paths[path].get.parameters.find((parameter: { name: string }) => parameter.name === 'limit'); expect(limit.schema.type).toBe('integer');
     }
     const period = spec.paths['/dashboard'].get.parameters.find((parameter: { name: string }) => parameter.name === 'period'); expect(period.schema.enum).toEqual(['daily', 'weekly', 'monthly']);
+    const source = spec.paths['/dashboard'].get.parameters.find((parameter: { name: string }) => parameter.name === 'source'); expect(source.schema.enum).toEqual(['official', 'self-scrape']);
   });
 
   it('returns mutation bodies matching public schemas without credential material', async () => {

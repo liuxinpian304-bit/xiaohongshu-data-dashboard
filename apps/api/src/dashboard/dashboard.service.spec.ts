@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { completedCollectionJobWhere, DashboardService, filterDashboardEvidence, type DashboardStore } from './dashboard.service';
 
 const snap = (overrides: Partial<any> = {}) => ({ noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', aggregation: 'cumulative_delta', availability: 'available', value: '100', capturedAt: new Date('2025-12-28T10:00:00Z'), source: 'official', ...overrides });
-const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z'), notes: Array<{ id: string; publishedAt: Date }> = []): DashboardStore => ({ async isAuthorizedOfficialAccount() { return true; }, async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta' }, { id: 'views-id', key: 'views', displayName: '访客', aggregation: 'cumulative_delta' }], snapshots, notes, lastSyncedAt }; } });
+const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z'), notes: Array<{ id: string; publishedAt: Date }> = []): DashboardStore => ({ async isReadableAccount() { return true; }, async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta' }, { id: 'views-id', key: 'views', displayName: '访客', aggregation: 'cumulative_delta' }], snapshots, notes, lastSyncedAt }; } });
 
 describe('DashboardService', () => {
   it('does not use an old-definition baseline for the current definition segment', () => {
@@ -84,13 +84,23 @@ describe('DashboardService', () => {
   });
 
   it('rejects mock and mixed source data', async () => {
-    await expect(new DashboardService(storeWith([])).get('daily', undefined, 'mock')).rejects.toThrow('official');
+    await expect(new DashboardService(storeWith([])).get('daily', undefined, 'mock')).rejects.toThrow('not supported');
     await expect(new DashboardService(storeWith([snap({ source: 'mock' })])).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'))).rejects.toThrow('mixed');
   });
 
+  it('reads self-scraped dashboard evidence without weakening official source isolation', async () => {
+    const result = await new DashboardService(storeWith([
+      snap({ source: 'self-scrape', capturedAt: new Date('2026-07-31T12:00:00Z'), value: '100' }),
+      snap({ source: 'self-scrape', capturedAt: new Date('2026-08-01T12:00:00Z'), value: '111' }),
+    ])).get('daily', undefined, 'self-scrape', new Date('2026-08-02T04:00:00Z'));
+
+    expect(result).toMatchObject({ source: 'self-scrape', cards: expect.arrayContaining([expect.objectContaining({ key: 'likes', value: '11' })]) });
+    await expect(new DashboardService(storeWith([snap({ source: 'self-scrape' })])).get('weekly', undefined, 'official', new Date('2026-01-05T04:00:00Z'))).rejects.toThrow('mixed');
+  });
+
   it('rejects an invalid, expired, or inactive selected account instead of falling back', async () => {
-    const store = storeWith([]); store.isAuthorizedOfficialAccount = async () => false;
-    await expect(new DashboardService(store).get('daily', '00000000-0000-4000-8000-000000000001')).rejects.toThrow('active authorized');
+    const store = storeWith([]); store.isReadableAccount = async () => false;
+    await expect(new DashboardService(store).get('daily', '00000000-0000-4000-8000-000000000001')).rejects.toThrow('not readable');
   });
 
   it('applies explicit interval, period-end and safe deduplicated semantics', async () => {
@@ -138,6 +148,14 @@ describe('DashboardService', () => {
     expect(result.dailyRows[0]?.deltas.find(({ key }) => key === 'likes')).toMatchObject({ value: null, availability: 'not_synced' });
     expect(result.dailyRows[2]?.metrics.find(({ key }) => key === 'likes')).toMatchObject({ value: '12', availability: 'available' });
     expect(result.dailyRows[2]?.deltas.find(({ key }) => key === 'likes')).toMatchObject({ value: '-3', availability: 'available' });
+  });
+
+  it('uses zero as the baseline only for a note first published inside that day', async () => {
+    const result = await new DashboardService(storeWith([
+      snap({ source: 'self-scrape', publishedAt: new Date('2026-08-05T00:30:00+08:00'), capturedAt: new Date('2026-08-05T12:00:00+08:00'), value: '7' }),
+    ])).get('daily', undefined, 'self-scrape', new Date('2026-08-06T04:00:00Z'));
+
+    expect(result.dailyRows.at(-1)?.metrics.find(({ key }) => key === 'likes')).toMatchObject({ value: '7', availability: 'available' });
   });
 
   it('counts notes published on each completed day without requiring metric snapshots', async () => {

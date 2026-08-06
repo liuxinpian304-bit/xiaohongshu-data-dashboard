@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { collectCursorPages, requestJson } from './api';
+import { collectCursorPages, dashboardPath, requestJson } from './api';
 
 describe('requestJson', () => {
+  it('requests real self-scraped evidence explicitly without removing the official source option', () => {
+    expect(dashboardPath('daily', 'account-1', 'self-scrape')).toBe('/dashboard?period=daily&source=self-scrape&accountId=account-1');
+    expect(dashboardPath('monthly', undefined, 'official')).toBe('/dashboard?period=monthly&source=official');
+  });
+
   it('keeps an authenticated successful empty response as success', async () => {
     const result = await requestJson<{ items: unknown[] }>('/resource', undefined, async () => new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'content-type': 'application/json' } }));
 

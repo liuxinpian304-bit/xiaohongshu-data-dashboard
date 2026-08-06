@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import type { DataAvailabilityState } from '../components/data-availability';
 
 export type DashboardPeriod = 'daily' | 'weekly' | 'monthly';
+export type DashboardSource = 'official' | 'self-scrape';
 
 export type DashboardCard = {
   key: string;
@@ -86,10 +87,14 @@ export function getNotes(accountId?: string, cursor?: string) { const q = new UR
 export function getNote(id: string) { return apiGet<NoteDetail>(`/notes/${encodeURIComponent(id)}`); }
 export function getComments(query: Record<string, string | undefined>) { const q = new URLSearchParams({ limit: '50' }); for (const [key, value] of Object.entries(query)) if (value) q.set(key, value); return apiGet<CursorPage<Comment>>(`/comments?${q}`); }
 
-export function getDashboard(period: DashboardPeriod, accountId?: string) {
-  const query = new URLSearchParams({ period, source: 'official' });
+export function dashboardPath(period: DashboardPeriod, accountId: string | undefined, source: DashboardSource) {
+  const query = new URLSearchParams({ period, source });
   if (accountId) query.set('accountId', accountId);
-  return apiGet<DashboardResponse>(`/dashboard?${query}`);
+  return `/dashboard?${query}`;
+}
+
+export function getDashboard(period: DashboardPeriod, accountId?: string, source: DashboardSource = 'self-scrape') {
+  return apiGet<DashboardResponse>(dashboardPath(period, accountId, source));
 }
 
 export async function getAuthorizedOfficialAccounts() {
@@ -97,6 +102,12 @@ export async function getAuthorizedOfficialAccounts() {
     const query = new URLSearchParams({ limit: '200' }); if (cursor) query.set('cursor', cursor);
     return apiGet<CursorPage<Account>>(`/accounts/authorized-official?${query}`);
   });
+}
+
+export async function getSelfScrapeAccounts() {
+  const result = await collectCursorPages<Account>((cursor) => getAccounts(cursor ?? undefined));
+  if (result.status !== 'ok') return result;
+  return { ...result, data: { ...result.data, items: result.data.items.filter(({ connectorType }) => connectorType === 'self-scrape') } };
 }
 
 export async function collectCursorPages<T>(load: (cursor: string | null) => Promise<ApiResult<CursorPage<T>>>) {

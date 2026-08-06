@@ -4,11 +4,13 @@ import { aggregateMetricSeries, getCompletedMonthToDatePeriod, getReportPeriod, 
 
 export const DASHBOARD_STORE = Symbol('DASHBOARD_STORE');
 const SOURCE = 'official';
-function authorizedAccountWhere(source: string, now: Date) {
-  return { connectorType: source, credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } }, capabilities: { some: { enabled: true } } };
+function readableAccountWhere(source: string, now: Date) {
+  return source === SOURCE
+    ? { connectorType: source, credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } }, capabilities: { some: { enabled: true } } }
+    : { connectorType: source };
 }
 export function completedCollectionJobWhere(source: string, accountId: string | undefined, now: Date) {
-  return { status: 'succeeded' as const, currentStage: 'complete', completedAt: { not: null }, account: authorizedAccountWhere(source, now), ...(accountId ? { accountId } : {}) };
+  return { status: 'succeeded' as const, currentStage: 'complete', completedAt: { not: null }, account: readableAccountWhere(source, now), ...(accountId ? { accountId } : {}) };
 }
 
 type DashboardSnapshot = {
@@ -19,7 +21,7 @@ type DashboardSnapshot = {
 };
 
 export interface DashboardStore {
-  isAuthorizedOfficialAccount(accountId: string, now: Date): Promise<boolean>;
+  isReadableAccount(accountId: string, source: string, now: Date): Promise<boolean>;
   read(periodStart: Date, periodEnd: Date, source: string, accountId: string | undefined, now: Date): Promise<{
     definitions: Array<{ id: string; key: string; displayName: string; aggregation: MetricAggregation; effectiveFrom?: Date; effectiveTo?: Date | null }>;
     snapshots: DashboardSnapshot[];
@@ -30,11 +32,11 @@ export interface DashboardStore {
 
 @Injectable()
 export class PrismaDashboardStore implements DashboardStore {
-  async isAuthorizedOfficialAccount(accountId: string, now: Date) {
-    return Boolean(await prisma.account.findFirst({ where: { id: accountId, connectorType: SOURCE, credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } }, capabilities: { some: { enabled: true } } }, select: { id: true } }));
+  async isReadableAccount(accountId: string, source: string, now: Date) {
+    return Boolean(await prisma.account.findFirst({ where: { id: accountId, ...readableAccountWhere(source, now) }, select: { id: true } }));
   }
   async read(periodStart: Date, periodEnd: Date, source: string, accountId: string | undefined, now: Date) {
-    const noteWhere = { ...(accountId ? { accountId } : {}), connectorType: source, account: authorizedAccountWhere(source, now) };
+    const noteWhere = { ...(accountId ? { accountId } : {}), connectorType: source, account: readableAccountWhere(source, now) };
     const [definitions, inPeriod, baselines, notes, lastSync] = await Promise.all([
       prisma.metricDefinition.findMany({ where: { source, effectiveFrom: { lte: periodEnd }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: periodStart } }] }, orderBy: [{ key: 'asc' }, { effectiveFrom: 'asc' }], select: { id: true, key: true, displayName: true, aggregation: true, effectiveFrom: true, effectiveTo: true } }),
       prisma.metricSnapshot.findMany({
@@ -93,8 +95,12 @@ function seriesDeltas(snapshots: DashboardSnapshot[], start: Date, cutoff: Date,
     const segmentEnd = definition?.effectiveTo && definition.effectiveTo <= cutoff ? new Date(definition.effectiveTo.getTime() - 1) : cutoff;
     const baseline = items.filter(({ capturedAt }) => capturedAt <= segmentStart).at(-1);
     const end = items.filter(({ capturedAt }) => capturedAt >= segmentStart && capturedAt <= segmentEnd).at(-1);
-    if (!end || (aggregation === 'cumulative_delta' && !baseline)) return { ...(end ?? baseline ?? items[0]!), delta: null };
+    if (!end) return { ...(baseline ?? items[0]!), delta: null };
     const inPeriod = items.filter(({ capturedAt }) => capturedAt > segmentStart && capturedAt <= segmentEnd);
+    if (aggregation === 'cumulative_delta' && !baseline) {
+      if (end.publishedAt < segmentStart || end.publishedAt > segmentEnd || inPeriod.some((item) => !usable(item))) return { ...end, delta: null };
+      return { ...end, delta: aggregateMetricSeries(aggregation, [{ value: 0 }, ...inPeriod.map((item) => ({ value: Number(item.value) }))], { start, endExclusive: new Date(cutoff.getTime() + 1) }) };
+    }
     const sequence = aggregation === 'cumulative_delta' ? [baseline!, ...inPeriod] : inPeriod;
     if (aggregation === 'cumulative_delta' && ((definition?.effectiveFrom && definition.effectiveFrom > start && baseline?.capturedAt.getTime() !== segmentStart.getTime()) || (definition?.effectiveTo && definition.effectiveTo <= cutoff && end?.capturedAt.getTime() !== segmentEnd.getTime()))) return { ...(end ?? baseline ?? items[0]!), delta: null };
     if (sequence.some((item) => !usable(item))) return { ...end, delta: null };
@@ -170,8 +176,8 @@ export class DashboardService {
   constructor(@Inject(DASHBOARD_STORE) private readonly store: DashboardStore) {}
   async get(period: string, accountId?: string, source = SOURCE, now = new Date()) {
     if (!['daily', 'weekly', 'monthly'].includes(period)) throw new BadRequestException('invalid period');
-    if (source !== SOURCE) throw new BadRequestException('dashboard source must be official');
-    if (accountId && !(await this.store.isAuthorizedOfficialAccount(accountId, now))) throw new BadRequestException('account is not an active authorized official account');
+    if (![SOURCE, 'self-scrape'].includes(source)) throw new BadRequestException('dashboard source is not supported');
+    if (accountId && !(await this.store.isReadableAccount(accountId, source, now))) throw new BadRequestException('account is not readable for the selected dashboard source');
     const reportPeriod = period === 'daily' ? getCompletedMonthToDatePeriod(now) : getReportPeriod(period as ReportType, now);
     const data = await this.store.read(reportPeriod.start, reportPeriod.end, source, accountId, now);
     if (data.snapshots.some((item) => item.source !== source)) throw new BadRequestException('mixed dashboard sources are not allowed');

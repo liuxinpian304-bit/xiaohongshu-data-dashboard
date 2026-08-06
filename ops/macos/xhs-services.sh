@@ -21,6 +21,7 @@ node_bin() {
 prepare_runtime() {
   [[ ${XHS_SKIP_RUNTIME_PREPARE:-0} == 1 ]] && return
   local revision pnpm=$PNPM_FALLBACK
+  local node=$(node_bin)
   revision=$(git -C "$REPO_ROOT" rev-parse HEAD)
   if [[ -e $SERVICE_APP/.git ]]; then
     git -C "$SERVICE_APP" checkout --detach "$revision"
@@ -28,7 +29,7 @@ prepare_runtime() {
     git -C "$REPO_ROOT" worktree add --detach "$SERVICE_APP" "$revision"
   fi
   [[ -x $pnpm ]] || { print -u2 -- "pnpm executable unavailable"; exit 69; }
-  (cd "$SERVICE_APP" && "$pnpm" install --frozen-lockfile)
+  (cd "$SERVICE_APP" && PATH="${node:h}:$PATH" "$pnpm" install --frozen-lockfile)
 }
 
 show_paths() {

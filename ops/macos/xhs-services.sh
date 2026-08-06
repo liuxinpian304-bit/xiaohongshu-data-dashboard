@@ -30,7 +30,7 @@ prepare_runtime() {
   fi
   [[ -x $pnpm ]] || { print -u2 -- "pnpm executable unavailable"; exit 69; }
   (cd "$SERVICE_APP" && PATH="${node:h}:$PATH" "$pnpm" install --frozen-lockfile --ignore-scripts)
-  (cd "$SERVICE_APP" && PATH="${node:h}:$PATH" "$pnpm" --filter @xhs/database prisma:generate)
+  (cd "$SERVICE_APP" && PATH="${node:h}:$PATH" DATABASE_URL=postgresql://xhs_runtime:local-dashboard-runtime-2026@127.0.0.1:55432/xhs_dashboard "$pnpm" --filter @xhs/database prisma:generate)
 }
 
 show_paths() {

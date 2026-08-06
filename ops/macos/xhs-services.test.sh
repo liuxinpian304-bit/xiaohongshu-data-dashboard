@@ -32,7 +32,7 @@ grep -q 'node_modules/next/dist/bin/next' "$XHS_SERVICE_HOME/bin/xhs-services.sh
 grep -q 'node_modules/tsx/dist/cli.mjs' "$XHS_SERVICE_HOME/bin/xhs-services.sh" || fail "services must start tsx directly"
 grep -q 'PATH="${node:h}:$PATH".*pnpm.*install' "$XHS_SERVICE_HOME/bin/xhs-services.sh" || fail "runtime install must expose Node on PATH"
 grep -q 'install --frozen-lockfile --ignore-scripts' "$XHS_SERVICE_HOME/bin/xhs-services.sh" || fail "runtime install must avoid networked lifecycle scripts"
-grep -q 'prisma:generate' "$XHS_SERVICE_HOME/bin/xhs-services.sh" || fail "runtime install must generate Prisma client"
+grep -q 'DATABASE_URL=.*prisma:generate' "$XHS_SERVICE_HOME/bin/xhs-services.sh" || fail "runtime install must generate Prisma client with configuration"
 [[ $(stat -f '%Lp' $XHS_SERVICE_HOME/runtime.env) == 600 ]] || fail "runtime env must use mode 600"
 for label in com.xhs.dashboard.web com.xhs.dashboard.api com.xhs.dashboard.collector; do
   plist="$XHS_LAUNCH_AGENT_HOME/$label.plist"

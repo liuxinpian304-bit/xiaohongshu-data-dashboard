@@ -35,3 +35,25 @@ for label in com.xhs.dashboard.web com.xhs.dashboard.api com.xhs.dashboard.colle
 done
 
 print -- "PASS: secure service rendering"
+
+stub_dir="$temp_root/stubs"
+mkdir -p "$stub_dir"
+cat > "$stub_dir/docker" <<'EOF'
+#!/bin/zsh
+[[ $1 == inspect ]] && { print healthy; exit 0; }
+exit 0
+EOF
+cat > "$stub_dir/curl" <<'EOF'
+#!/bin/zsh
+exit 0
+EOF
+chmod +x "$stub_dir/docker" "$stub_dir/curl"
+
+status_output=$(PATH="$stub_dir:$PATH" $script status)
+[[ $status_output == *"postgres=healthy"* ]] || fail "postgres health missing"
+[[ $status_output == *"redis=healthy"* ]] || fail "redis health missing"
+[[ $status_output == *"web=healthy"* ]] || fail "web health missing"
+[[ $status_output == *"api=healthy"* ]] || fail "api health missing"
+[[ $status_output == *"collector=healthy"* ]] || fail "collector health missing"
+
+print -- "PASS: service health contract"

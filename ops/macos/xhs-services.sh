@@ -105,12 +105,82 @@ run_service() {
   esac
 }
 
+labels() {
+  print -- "$WEB_LABEL"
+  print -- "$API_LABEL"
+  print -- "$COLLECTOR_LABEL"
+}
+
+start_dependencies() {
+  command -v docker >/dev/null || { print -u2 -- "docker is unavailable"; exit 69; }
+  docker start dashboard-mvp-postgres-1 dashboard-mvp-redis-1 >/dev/null
+}
+
+start_services() {
+  start_dependencies
+  local domain="gui/$(id -u)" label plist
+  for label in ${(f)$(labels)}; do
+    plist="$LAUNCH_AGENT_HOME/$label.plist"
+    [[ -f $plist ]] || { print -u2 -- "missing $plist; run install"; exit 78; }
+    launchctl bootstrap "$domain" "$plist" 2>/dev/null || true
+    launchctl enable "$domain/$label"
+    launchctl kickstart -k "$domain/$label"
+  done
+}
+
+stop_services() {
+  local domain="gui/$(id -u)" label
+  for label in ${(f)$(labels)}; do
+    launchctl bootout "$domain/$label" 2>/dev/null || true
+  done
+}
+
+install_services() {
+  local password=${ADMIN_PASSWORD:-${1:-}}
+  [[ -n $password ]] || { print -u2 -- "set ADMIN_PASSWORD or pass the password to install"; exit 64; }
+  render "$password"
+  start_services
+}
+
+uninstall_services() {
+  stop_services
+  local label
+  for label in ${(f)$(labels)}; do
+    rm -f -- "$LAUNCH_AGENT_HOME/$label.plist"
+  done
+}
+
+healthy_url() {
+  curl -fsS -o /dev/null "$1"
+}
+
+show_status() {
+  load_runtime
+  local failed=0 state
+  state=$(docker inspect --format '{{.State.Health.Status}}' dashboard-mvp-postgres-1 2>/dev/null || print unavailable)
+  print -- "postgres=$state"
+  [[ $state == healthy ]] || failed=1
+  state=$(docker inspect --format '{{.State.Health.Status}}' dashboard-mvp-redis-1 2>/dev/null || print unavailable)
+  print -- "redis=$state"
+  [[ $state == healthy ]] || failed=1
+  if healthy_url 'http://127.0.0.1:3000/dashboard?period=daily'; then print -- "web=healthy"; else print -- "web=unhealthy"; failed=1; fi
+  if healthy_url http://127.0.0.1:3001/health; then print -- "api=healthy"; else print -- "api=unhealthy"; failed=1; fi
+  if curl -fsS -o /dev/null -H "Authorization: Bearer $LOCAL_XHS_COLLECTOR_TOKEN" http://127.0.0.1:43127/v1/session/status; then print -- "collector=healthy"; else print -- "collector=unhealthy"; failed=1; fi
+  return $failed
+}
+
 case ${1:-} in
   paths) show_paths ;;
   render) render "${2:-}" ;;
   run) run_service "${2:-}" ;;
+  install) install_services "${2:-}" ;;
+  start) start_services ;;
+  stop) stop_services ;;
+  restart) stop_services; start_services ;;
+  status) show_status ;;
+  uninstall) uninstall_services ;;
   *)
-    print -u2 -- "usage: ${0:t} paths|render|run"
+    print -u2 -- "usage: ${0:t} install|start|stop|restart|status|uninstall|paths"
     exit 64
     ;;
 esac

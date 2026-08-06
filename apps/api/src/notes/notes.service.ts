@@ -1,14 +1,73 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { prisma } from '@xhs/database';
 import { page } from '../common/pagination.dto';
+
+type SnapshotProjectionInput = {
+  value: { toString(): string } | null;
+  availability: string;
+  source: string;
+  observedAt: Date;
+  capturedAt: Date;
+  metricDefinition: { key: string; displayName: string; version: string; effectiveFrom: Date; effectiveTo: Date | null };
+};
+
+export function projectNoteMetrics(snapshots: SnapshotProjectionInput[]) {
+  const seen = new Set<string>();
+  return snapshots.flatMap((snapshot) => {
+    const definition = snapshot.metricDefinition;
+    if (snapshot.capturedAt < definition.effectiveFrom || (definition.effectiveTo && snapshot.capturedAt >= definition.effectiveTo) || seen.has(definition.key)) return [];
+    seen.add(definition.key);
+    return [{
+      key: definition.key,
+      displayName: definition.displayName,
+      availability: snapshot.availability,
+      value: snapshot.value?.toString() ?? null,
+      source: snapshot.source,
+      observedAt: snapshot.observedAt.toISOString(),
+      capturedAt: snapshot.capturedAt.toISOString(),
+      definitionVersion: definition.version,
+    }];
+  });
+}
+
+const snapshotInclude = {
+  where: { supersededAt: null },
+  orderBy: [{ capturedAt: 'desc' as const }, { observedAt: 'desc' as const }, { revision: 'desc' as const }],
+  include: { metricDefinition: true },
+};
+
 @Injectable()
 export class NotesService {
-  async list(accountId:string|undefined,cursor:string|undefined,limit:number){return page(await prisma.note.findMany({where:{...(accountId?{accountId}:{}),...(cursor?{id:{gt:cursor}}:{})},orderBy:{id:'asc'},take:limit+1}),limit)}
-  async detail(id:string){
-    const note=await prisma.note.findUnique({where:{id}});if(!note)throw new NotFoundException('note not found');
-    const snapshots=await prisma.metricSnapshot.findMany({where:{noteId:id,supersededAt:null},orderBy:[{capturedAt:'desc'},{observedAt:'desc'},{revision:'desc'}],include:{metricDefinition:true}});
-    const seen=new Set<string>();
-    const metrics=snapshots.flatMap(s=>{const d=s.metricDefinition;if(s.capturedAt<d.effectiveFrom||(d.effectiveTo&&s.capturedAt>=d.effectiveTo)||seen.has(d.key))return[];seen.add(d.key);return[{key:d.key,displayName:d.displayName,availability:s.availability,value:s.value?.toString()??null,source:s.source,observedAt:s.observedAt.toISOString(),capturedAt:s.capturedAt.toISOString(),definitionVersion:d.version}]});
-    return{...note,metrics};
+  async list(accountId: string | undefined, cursor: string | undefined, limit: number) {
+    const notes = await prisma.note.findMany({
+      where: { ...(accountId ? { accountId } : {}), ...(cursor ? { id: { gt: cursor } } : {}) },
+      orderBy: { id: 'asc' },
+      take: limit + 1,
+      include: { account: { select: { id: true, displayName: true, platformId: true } }, snapshots: snapshotInclude },
+    });
+    const completeness = notes.length ? await prisma.commentSyncCompleteness.findMany({
+      where: { OR: notes.map((note) => ({ connectorType: note.connectorType, accountId: note.accountId, notePlatformId: note.platformId })) },
+    }) : [];
+    const completenessByNote = new Map(completeness.map((item) => [`${item.connectorType}:${item.accountId}:${item.notePlatformId}`, item]));
+    return page(notes.map(({ snapshots, ...note }) => {
+      const state = completenessByNote.get(`${note.connectorType}:${note.accountId}:${note.platformId}`);
+      return {
+        ...note,
+        metrics: projectNoteMetrics(snapshots),
+        commentCompleteness: state ? { status: state.status, error: state.error, updatedAt: state.updatedAt.toISOString() } : null,
+      };
+    }), limit);
+  }
+
+  async detail(id: string) {
+    const note = await prisma.note.findUnique({ where: { id }, include: { account: { select: { id: true, displayName: true, platformId: true } }, snapshots: snapshotInclude } });
+    if (!note) throw new NotFoundException('note not found');
+    const completeness = await prisma.commentSyncCompleteness.findUnique({ where: { connectorType_accountId_notePlatformId: { connectorType: note.connectorType, accountId: note.accountId, notePlatformId: note.platformId } } });
+    const { snapshots, ...base } = note;
+    return {
+      ...base,
+      metrics: projectNoteMetrics(snapshots),
+      commentCompleteness: completeness ? { status: completeness.status, error: completeness.error, updatedAt: completeness.updatedAt.toISOString() } : null,
+    };
   }
 }

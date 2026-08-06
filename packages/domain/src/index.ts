@@ -1,7 +1,7 @@
 export type { DataAvailability } from './data-availability';
 export type { CommentCompleteness } from './comment';
 export type { Metric } from './metric';
-export { getReportPeriod } from './report-period';
+export { getCompletedMonthToDatePeriod, getReportPeriod } from './report-period';
 export { getRollingSyncDates, rollingSyncJobId } from './rolling-sync-window';
 export type { RollingSyncMode, RollingSyncWindow } from './rolling-sync-window';
 export { aggregateCumulative, aggregateMetricSeries, aggregateMetricSeriesWithTrace, METRIC_AGGREGATIONS, type AggregationTrace, type MetricAggregation } from './metric-aggregation';

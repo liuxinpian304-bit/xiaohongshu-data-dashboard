@@ -25,6 +25,19 @@ export interface ReportPeriod {
 
 const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
 
+export function getCompletedMonthToDatePeriod(now: Date): ReportPeriod {
+  const shanghaiNow = toZonedTime(now, BUSINESS_TIME_ZONE);
+  const monthStart = startOfMonth(shanghaiNow);
+  const lastCompletedDay = subDays(startOfDay(shanghaiNow), 1);
+
+  return createPeriod(
+    'daily',
+    monthStart,
+    endOfDay(lastCompletedDay),
+    `${format(monthStart, 'yyyy年MM月dd日')}至${format(lastCompletedDay, 'MM月dd日')}`,
+  );
+}
+
 export function getReportPeriod(type: ReportType, now: Date): ReportPeriod {
   const shanghaiNow = toZonedTime(now, BUSINESS_TIME_ZONE);
 

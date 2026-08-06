@@ -6,6 +6,19 @@ readonly API_LABEL=com.xhs.dashboard.api
 readonly COLLECTOR_LABEL=com.xhs.dashboard.collector
 readonly SERVICE_HOME=${XHS_SERVICE_HOME:-$HOME/Library/Application Support/xiaohongshu-dashboard}
 readonly LAUNCH_AGENT_HOME=${XHS_LAUNCH_AGENT_HOME:-$HOME/Library/LaunchAgents}
+readonly REPO_ROOT=${0:A:h:h:h}
+readonly LOG_HOME=$SERVICE_HOME/logs
+readonly RUNTIME_ENV=$SERVICE_HOME/runtime.env
+readonly NODE_FALLBACK=/Users/jixiang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node
+readonly PNPM_FALLBACK=/Users/jixiang/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm
+
+node_bin() {
+  command -v node 2>/dev/null || print -- "$NODE_FALLBACK"
+}
+
+pnpm_bin() {
+  command -v pnpm 2>/dev/null || print -- "$PNPM_FALLBACK"
+}
 
 show_paths() {
   print -- "service_home=$SERVICE_HOME"
@@ -15,10 +28,89 @@ show_paths() {
   print -- "collector_label=$COLLECTOR_LABEL"
 }
 
+write_plist() {
+  local label=$1 service=$2
+  local plist=$LAUNCH_AGENT_HOME/$label.plist
+  cat >| "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$label</string>
+  <key>ProgramArguments</key>
+  <array><string>$REPO_ROOT/ops/macos/xhs-services.sh</string><string>run</string><string>$service</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>$LOG_HOME/$service.log</string>
+  <key>StandardErrorPath</key><string>$LOG_HOME/$service.error.log</string>
+</dict>
+</plist>
+EOF
+}
+
+render() {
+  local password=${1:-}
+  [[ -n $password ]] || { print -u2 -- "administrator password is required"; exit 64; }
+  local node=$(node_bin)
+  [[ -x $node ]] || { print -u2 -- "node executable unavailable"; exit 69; }
+  mkdir -p "$SERVICE_HOME" "$LOG_HOME" "$LAUNCH_AGENT_HOME"
+  chmod 700 "$SERVICE_HOME" "$LOG_HOME"
+  local hash credential_key collector_token
+  hash=$(cd "$REPO_ROOT/apps/api" && ADMIN_PASSWORD_TEMP=$password "$node" -e 'require("argon2").hash(process.env.ADMIN_PASSWORD_TEMP,{type:require("argon2").argon2id}).then(v=>process.stdout.write(v))')
+  credential_key=$($node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64"))')
+  collector_token=$($node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')
+  umask 077
+  {
+    print -r -- "ADMIN_PASSWORD_HASH=${(q)hash}"
+    print -r -- "CREDENTIAL_ENCRYPTION_KEY=${(q)credential_key}"
+    print -r -- "LOCAL_XHS_COLLECTOR_TOKEN=${(q)collector_token}"
+    print -r -- "DATABASE_URL=postgresql://xhs_runtime:local-dashboard-runtime-2026@127.0.0.1:55432/xhs_dashboard"
+  } >| "$RUNTIME_ENV"
+  chmod 600 "$RUNTIME_ENV"
+  write_plist "$WEB_LABEL" web
+  write_plist "$API_LABEL" api
+  write_plist "$COLLECTOR_LABEL" collector
+}
+
+load_runtime() {
+  [[ -f $RUNTIME_ENV ]] || { print -u2 -- "runtime configuration missing; run install"; exit 78; }
+  [[ $(stat -f '%Lp' "$RUNTIME_ENV") == 600 ]] || { print -u2 -- "runtime configuration must use mode 600"; exit 78; }
+  source "$RUNTIME_ENV"
+  export ADMIN_PASSWORD_HASH CREDENTIAL_ENCRYPTION_KEY LOCAL_XHS_COLLECTOR_TOKEN DATABASE_URL
+}
+
+run_service() {
+  local service=${1:-} node=$(node_bin) pnpm=$(pnpm_bin)
+  load_runtime
+  export PATH="${node:h}:${pnpm:h}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  case $service in
+    web)
+      export API_BASE_URL=http://127.0.0.1:3001 APP_ORIGIN=http://127.0.0.1:3000
+      cd "$REPO_ROOT/apps/web"
+      exec "$pnpm" dev -- --hostname 127.0.0.1
+      ;;
+    api)
+      export API_PORT=3001 APP_ORIGIN=http://127.0.0.1:3000
+      export LOCAL_XHS_COLLECTOR_ENABLED=true LOCAL_XHS_COLLECTOR_URL=http://127.0.0.1:43127
+      cd "$REPO_ROOT/apps/api"
+      exec "$pnpm" dev
+      ;;
+    collector)
+      export LOCAL_XHS_COLLECTOR_ENABLED=true LOCAL_XHS_COLLECTOR_HOST=127.0.0.1 LOCAL_XHS_COLLECTOR_PORT=43127
+      cd "$REPO_ROOT/apps/collector"
+      exec "$pnpm" dev
+      ;;
+    *) print -u2 -- "unknown service: $service"; exit 64 ;;
+  esac
+}
+
 case ${1:-} in
   paths) show_paths ;;
+  render) render "${2:-}" ;;
+  run) run_service "${2:-}" ;;
   *)
-    print -u2 -- "usage: ${0:t} paths"
+    print -u2 -- "usage: ${0:t} paths|render|run"
     exit 64
     ;;
 esac

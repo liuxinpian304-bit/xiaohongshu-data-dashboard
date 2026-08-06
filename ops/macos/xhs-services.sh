@@ -30,6 +30,7 @@ prepare_runtime() {
   fi
   [[ -x $pnpm ]] || { print -u2 -- "pnpm executable unavailable"; exit 69; }
   (cd "$SERVICE_APP" && PATH="${node:h}:$PATH" "$pnpm" install --frozen-lockfile --ignore-scripts)
+  (cd "$SERVICE_APP" && PATH="${node:h}:$PATH" "$pnpm" --filter @xhs/database prisma:generate)
 }
 
 show_paths() {

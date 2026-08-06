@@ -41,6 +41,8 @@ export class ReportDto { @ApiProperty({ type: String, format: 'uuid' }) id!: str
 export class NotificationDto { @ApiProperty({ type: String, format: 'uuid' }) id!: string; @ApiProperty({ type: String }) eventId!: string; @ApiProperty({ type: String, format: 'uuid' }) accountId!: string; @ApiProperty({ type: String, enum: ['sync_completed', 'sync_failed', 'authorization_expired', 'new_comment', 'comment_sync_incomplete', 'report_generated', 'report_rebuilt'] }) type!: string; @ApiProperty({ type: String }) title!: string; @ApiProperty({ type: String }) body!: string; @ApiProperty({ type: String }) link!: string; @ApiProperty({ type: String, format: 'date-time', nullable: true }) readAt!: string | null; @ApiProperty({ type: String, format: 'date-time' }) createdAt!: string; }
 export class DashboardCardDto { @ApiProperty({ type: String }) key!: string; @ApiProperty({ type: String, enum: ['cumulative_delta', 'sum_interval', 'period_end', 'deduplicated_period'] }) aggregation!: string; @ApiProperty({ type: String, nullable: true }) value!: string | null; @ApiProperty({ type: String, enum: ['zero', 'not_synced', 'awaiting_authorization', 'not_provided', 'available'] }) availability!: string; }
 export class DashboardTrendPointDto { @ApiProperty({ type: String, format: 'date' }) date!: string; @ApiProperty({ type: [DashboardCardDto] }) metrics!: DashboardCardDto[]; }
+export class DashboardMetricDeltaDto { @ApiProperty({ type: String }) key!: string; @ApiProperty({ type: String, nullable: true }) value!: string | null; @ApiProperty({ type: String, enum: ['zero', 'not_synced', 'awaiting_authorization', 'not_provided', 'available'] }) availability!: string; }
+export class DashboardDailyRowDto { @ApiProperty({ type: String, format: 'date' }) date!: string; @ApiProperty({ type: [DashboardCardDto] }) metrics!: DashboardCardDto[]; @ApiProperty({ type: [DashboardMetricDeltaDto] }) deltas!: DashboardMetricDeltaDto[]; }
 export class DashboardRankedNoteDto { @ApiProperty({ type: String, format: 'uuid' }) id!: string; @ApiProperty({ type: String, format: 'uuid' }) accountId!: string; @ApiProperty({ type: String }) title!: string; @ApiProperty({ type: String, format: 'date-time' }) publishedAt!: string; @ApiProperty({ type: String }) metricKey!: string; @ApiProperty({ type: String }) metricLabel!: string; @ApiProperty({ type: String }) value!: string; }
 export class DashboardResponseDto {
   @ApiProperty({ type: String, enum: ['daily', 'weekly', 'monthly'] }) period!: string;
@@ -50,6 +52,7 @@ export class DashboardResponseDto {
   @ApiProperty({ type: String, format: 'date-time', nullable: true }) lastSyncedAt!: string | null;
   @ApiProperty({ type: [DashboardCardDto] }) cards!: DashboardCardDto[];
   @ApiProperty({ type: [DashboardTrendPointDto] }) trend!: DashboardTrendPointDto[];
+  @ApiProperty({ type: [DashboardDailyRowDto] }) dailyRows!: DashboardDailyRowDto[];
   @ApiProperty({ type: [DashboardRankedNoteDto] }) rankedNotes!: DashboardRankedNoteDto[];
 }
 export class AuthCsrfResponseDto { @ApiProperty({ type: String }) csrfToken!: string; }

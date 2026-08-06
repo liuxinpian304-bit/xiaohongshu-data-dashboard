@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { completedCollectionJobWhere, DashboardService, filterDashboardEvidence, type DashboardStore } from './dashboard.service';
 
 const snap = (overrides: Partial<any> = {}) => ({ noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', aggregation: 'cumulative_delta', availability: 'available', value: '100', capturedAt: new Date('2025-12-28T10:00:00Z'), source: 'official', ...overrides });
-const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z')): DashboardStore => ({ async isAuthorizedOfficialAccount() { return true; }, async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta' }, { id: 'views-id', key: 'views', displayName: '访客', aggregation: 'cumulative_delta' }], snapshots, lastSyncedAt }; } });
+const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z'), notes: Array<{ id: string; publishedAt: Date }> = []): DashboardStore => ({ async isAuthorizedOfficialAccount() { return true; }, async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta' }, { id: 'views-id', key: 'views', displayName: '访客', aggregation: 'cumulative_delta' }], snapshots, notes, lastSyncedAt }; } });
 
 describe('DashboardService', () => {
   it('does not use an old-definition baseline for the current definition segment', () => {
@@ -110,5 +110,43 @@ describe('DashboardService', () => {
   it('keeps a successful empty dataset distinct from fabricated values', async () => {
     const result = await new DashboardService(storeWith([], null)).get('monthly', undefined, 'official', new Date('2026-01-15T04:00:00Z'));
     expect(result).toMatchObject({ source: 'official', lastSyncedAt: null, cards: [{ key: 'likes', value: null }, { key: 'views', value: null }], trend: [], rankedNotes: [] });
+  });
+
+  it('returns every completed Shanghai day in the current month even when a day has no snapshot', async () => {
+    const result = await new DashboardService(storeWith([
+      snap({ capturedAt: new Date('2026-07-31T12:00:00Z'), value: '100' }),
+      snap({ capturedAt: new Date('2026-08-01T12:00:00Z'), value: '110' }),
+      snap({ capturedAt: new Date('2026-08-03T12:00:00Z'), value: '137' }),
+      snap({ metricDefinitionId: 'views-id', metricKey: 'views', capturedAt: new Date('2026-08-04T12:00:00Z'), value: null, availability: 'not_provided' }),
+    ])).get('daily', undefined, 'official', new Date('2026-08-05T04:00:00Z'));
+
+    expect(result.dailyRows.map(({ date }) => date)).toEqual(['2026-08-01', '2026-08-02', '2026-08-03', '2026-08-04']);
+    expect(result.dailyRows[1]?.metrics.find(({ key }) => key === 'likes')).toMatchObject({ value: null, availability: 'not_synced' });
+    expect(result.dailyRows[3]?.metrics.find(({ key }) => key === 'views')).toMatchObject({ value: null, availability: 'not_provided' });
+  });
+
+  it('computes each daily value independently and compares it with the previous day', async () => {
+    const result = await new DashboardService(storeWith([
+      snap({ capturedAt: new Date('2026-07-31T12:00:00Z'), value: '100' }),
+      snap({ capturedAt: new Date('2026-08-01T12:00:00Z'), value: '110' }),
+      snap({ capturedAt: new Date('2026-08-02T12:00:00Z'), value: '125' }),
+      snap({ capturedAt: new Date('2026-08-03T12:00:00Z'), value: '137' }),
+      snap({ capturedAt: new Date('2026-08-04T12:00:00Z'), value: '140' }),
+    ])).get('daily', undefined, 'official', new Date('2026-08-05T04:00:00Z'));
+
+    expect(result.dailyRows[0]?.metrics.find(({ key }) => key === 'likes')).toMatchObject({ value: '10', availability: 'available' });
+    expect(result.dailyRows[0]?.deltas.find(({ key }) => key === 'likes')).toMatchObject({ value: null, availability: 'not_synced' });
+    expect(result.dailyRows[2]?.metrics.find(({ key }) => key === 'likes')).toMatchObject({ value: '12', availability: 'available' });
+    expect(result.dailyRows[2]?.deltas.find(({ key }) => key === 'likes')).toMatchObject({ value: '-3', availability: 'available' });
+  });
+
+  it('counts notes published on each completed day without requiring metric snapshots', async () => {
+    const result = await new DashboardService(storeWith([], null, [
+      { id: 'note-1', publishedAt: new Date('2026-08-01T01:00:00+08:00') },
+      { id: 'note-2', publishedAt: new Date('2026-08-01T23:00:00+08:00') },
+      { id: 'note-3', publishedAt: new Date('2026-08-03T12:00:00+08:00') },
+    ])).get('daily', undefined, 'official', new Date('2026-08-05T04:00:00Z'));
+
+    expect(result.dailyRows.map((row) => row.metrics.find(({ key }) => key === 'notes')?.value)).toEqual(['2', '0', '1', '0']);
   });
 });

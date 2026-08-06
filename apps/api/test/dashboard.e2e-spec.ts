@@ -35,6 +35,8 @@ describe('dashboard API', () => {
     await agent.post('/auth/login').set('Origin', 'http://127.0.0.1').set('Sec-Fetch-Site', 'same-origin').set('X-CSRF-Token', csrf.body.csrfToken).send({ password: 'dashboard password' }).expect(201);
     const response = await agent.get('/dashboard?period=daily').expect(200);
     expect(response.body.cards[0]).toMatchObject({ key: expect.any(String), availability: expect.stringMatching(/available|zero|not_synced|awaiting_authorization|not_provided/) });
+    expect(response.body.dailyRows).toEqual(expect.any(Array));
+    expect(response.body.dailyRows[0]).toMatchObject({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), metrics: expect.any(Array), deltas: expect.any(Array) });
   });
 
   it('publishes OpenAPI JSON with unique operation ids', async () => {
@@ -77,7 +79,12 @@ describe('dashboard API', () => {
     expect(schemas.DashboardResponseDto.properties.lastSyncedAt).toMatchObject({ type: 'string', format: 'date-time', nullable: true });
     expect(schemas.DashboardResponseDto.properties.source).toMatchObject({ type: 'string', nullable: true });
     expect(schemas.DashboardResponseDto.properties.trend.items.$ref).toBe('#/components/schemas/DashboardTrendPointDto');
+    expect(schemas.DashboardResponseDto.properties.dailyRows.items.$ref).toBe('#/components/schemas/DashboardDailyRowDto');
     expect(schemas.DashboardResponseDto.properties.rankedNotes.items.$ref).toBe('#/components/schemas/DashboardRankedNoteDto');
+    expect(schemas.DashboardDailyRowDto.properties.date).toMatchObject({ type: 'string', format: 'date' });
+    expect(schemas.DashboardDailyRowDto.properties.metrics.items.$ref).toBe('#/components/schemas/DashboardCardDto');
+    expect(schemas.DashboardDailyRowDto.properties.deltas.items.$ref).toBe('#/components/schemas/DashboardMetricDeltaDto');
+    expect(schemas.DashboardMetricDeltaDto.properties.availability.enum).toEqual(['zero', 'not_synced', 'awaiting_authorization', 'not_provided', 'available']);
     expect(schemas.DashboardCardDto.properties.aggregation.enum).toEqual(['cumulative_delta', 'sum_interval', 'period_end', 'deduplicated_period']);
     expect(spec.paths['/accounts/authorized-official'].get.responses['200'].content['application/json'].schema.properties.items.items.$ref).toBe('#/components/schemas/AccountDto');
     expect(schemas.NotificationDto.properties.type.enum).toContain('report_rebuilt');

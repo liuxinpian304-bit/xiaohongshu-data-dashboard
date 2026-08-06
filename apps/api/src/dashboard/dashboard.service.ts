@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { prisma } from '@xhs/database';
-import { aggregateMetricSeries, getReportPeriod, type DataAvailability, type MetricAggregation, type ReportType } from '@xhs/domain';
+import { aggregateMetricSeries, getCompletedMonthToDatePeriod, getReportPeriod, type DataAvailability, type MetricAggregation, type ReportType } from '@xhs/domain';
 
 export const DASHBOARD_STORE = Symbol('DASHBOARD_STORE');
 const SOURCE = 'official';
@@ -23,6 +23,7 @@ export interface DashboardStore {
   read(periodStart: Date, periodEnd: Date, source: string, accountId: string | undefined, now: Date): Promise<{
     definitions: Array<{ id: string; key: string; displayName: string; aggregation: MetricAggregation; effectiveFrom?: Date; effectiveTo?: Date | null }>;
     snapshots: DashboardSnapshot[];
+    notes: Array<{ id: string; publishedAt: Date }>;
     lastSyncedAt: Date | null;
   }>;
 }
@@ -34,7 +35,7 @@ export class PrismaDashboardStore implements DashboardStore {
   }
   async read(periodStart: Date, periodEnd: Date, source: string, accountId: string | undefined, now: Date) {
     const noteWhere = { ...(accountId ? { accountId } : {}), connectorType: source, account: authorizedAccountWhere(source, now) };
-    const [definitions, inPeriod, baselines, lastSync] = await Promise.all([
+    const [definitions, inPeriod, baselines, notes, lastSync] = await Promise.all([
       prisma.metricDefinition.findMany({ where: { source, effectiveFrom: { lte: periodEnd }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: periodStart } }] }, orderBy: [{ key: 'asc' }, { effectiveFrom: 'asc' }], select: { id: true, key: true, displayName: true, aggregation: true, effectiveFrom: true, effectiveTo: true } }),
       prisma.metricSnapshot.findMany({
         where: { source, supersededAt: null, capturedAt: { gte: periodStart, lte: periodEnd }, note: noteWhere },
@@ -45,6 +46,7 @@ export class PrismaDashboardStore implements DashboardStore {
         orderBy: { capturedAt: 'desc' }, distinct: ['noteId', 'metricDefinitionId'],
         include: { metricDefinition: { select: { key: true, aggregation: true } }, note: { select: { id: true, title: true, accountId: true, publishedAt: true } } },
       }),
+      prisma.note.findMany({ where: { ...noteWhere, publishedAt: { gte: periodStart, lte: periodEnd } }, select: { id: true, publishedAt: true } }),
       prisma.syncJob.findFirst({
         where: completedCollectionJobWhere(source, accountId, now),
         orderBy: { completedAt: 'desc' }, select: { completedAt: true },
@@ -56,7 +58,7 @@ export class PrismaDashboardStore implements DashboardStore {
       metricDefinitionId: snapshot.metricDefinitionId, metricKey: snapshot.metricDefinition.key, aggregation: snapshot.aggregation, aggregationVersion: snapshot.aggregationVersion, windowStart: snapshot.windowStart, windowEnd: snapshot.windowEnd, authoritativePeriod: snapshot.authoritativePeriod, availability: snapshot.availability,
       value: snapshot.value?.toString() ?? null, capturedAt: snapshot.capturedAt, source: snapshot.source,
     });
-    return { definitions, snapshots: evidence.map(map).sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()), lastSyncedAt: lastSync?.completedAt ?? null };
+    return { definitions, snapshots: evidence.map(map).sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime()), notes, lastSyncedAt: lastSync?.completedAt ?? null };
   }
 }
 
@@ -116,6 +118,41 @@ function buildTrend(snapshots: DashboardSnapshot[], start: Date, end: Date, segm
   });
 }
 
+function dailyDates(start: Date, end: Date) {
+  if (end < start) return [];
+  const dates: string[] = [];
+  const cursor = new Date(`${shanghaiDate(start)}T00:00:00+08:00`);
+  while (cursor <= end) {
+    dates.push(shanghaiDate(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function buildDailyRows(snapshots: DashboardSnapshot[], notes: Array<{ id: string; publishedAt: Date }>, start: Date, end: Date, segments: Array<{ id: string; key: string; aggregation: MetricAggregation; effectiveFrom?: Date; effectiveTo?: Date | null }>, definitions: Array<{ key: string; aggregation: MetricAggregation }>) {
+  const rows = dailyDates(start, end).map((date) => {
+    const dayStart = new Date(`${date}T00:00:00.000+08:00`);
+    const dayEnd = new Date(`${date}T23:59:59.999+08:00`);
+    const deltas = seriesDeltas(snapshots, dayStart, dayEnd, segments);
+    const noteCount = notes.filter(({ publishedAt }) => shanghaiDate(publishedAt) === date).length;
+    return { date, metrics: [
+      { key: 'notes', aggregation: 'sum_interval' as const, value: String(noteCount), availability: noteCount === 0 ? 'zero' as const : 'available' as const },
+      ...definitions.map(({ key, aggregation }) => aggregate(key, aggregation, deltas.filter((item) => item.metricKey === key))),
+    ] };
+  });
+  return rows.map((row, index) => ({
+    ...row,
+    deltas: row.metrics.map((metric) => {
+      const previous = rows[index - 1]?.metrics.find(({ key }) => key === metric.key);
+      const currentUsable = (metric.availability === 'available' || metric.availability === 'zero') && metric.value !== null;
+      const previousUsable = previous && (previous.availability === 'available' || previous.availability === 'zero') && previous.value !== null;
+      if (!currentUsable || !previousUsable) return { key: metric.key, value: null, availability: currentUsable ? 'not_synced' as const : metric.availability };
+      const value = Number(metric.value) - Number(previous.value);
+      return { key: metric.key, value: String(value), availability: value === 0 ? 'zero' as const : 'available' as const };
+    }),
+  }));
+}
+
 function buildRanking(deltas: DeltaSnapshot[], labels: Map<string, string>) {
   const priority = ['impressions', 'views', 'likes', 'comments', 'favorites'];
   const candidateIds = [...new Set(deltas.filter(({ delta }) => delta !== null).map(({ noteId }) => noteId))];
@@ -135,7 +172,7 @@ export class DashboardService {
     if (!['daily', 'weekly', 'monthly'].includes(period)) throw new BadRequestException('invalid period');
     if (source !== SOURCE) throw new BadRequestException('dashboard source must be official');
     if (accountId && !(await this.store.isAuthorizedOfficialAccount(accountId, now))) throw new BadRequestException('account is not an active authorized official account');
-    const reportPeriod = getReportPeriod(period as ReportType, now);
+    const reportPeriod = period === 'daily' ? getCompletedMonthToDatePeriod(now) : getReportPeriod(period as ReportType, now);
     const data = await this.store.read(reportPeriod.start, reportPeriod.end, source, accountId, now);
     if (data.snapshots.some((item) => item.source !== source)) throw new BadRequestException('mixed dashboard sources are not allowed');
     const definitionMap = new Map<string, { key: string; displayName: string; aggregation: MetricAggregation }>();
@@ -143,10 +180,12 @@ export class DashboardService {
     for (const item of data.snapshots) if (!definitionMap.has(item.metricKey)) definitionMap.set(item.metricKey, { key: item.metricKey, displayName: item.metricKey, aggregation: item.aggregation });
     const definitions = [...definitionMap.values()].sort((a, b) => a.key.localeCompare(b.key));
     const deltas = seriesDeltas(data.snapshots, reportPeriod.start, reportPeriod.end, data.definitions);
+    const dailyRows = period === 'daily' ? buildDailyRows(data.snapshots, data.notes, reportPeriod.start, reportPeriod.end, data.definitions, definitions) : [];
+    const cards = period === 'daily' ? dailyRows.at(-1)?.metrics ?? definitions.map(({ key, aggregation }) => ({ key, aggregation, value: null, availability: 'not_synced' as const })) : definitions.map(({ key, aggregation }) => aggregate(key, aggregation, deltas.filter((item) => item.metricKey === key)));
     return {
       period, periodStart: reportPeriod.start.toISOString(), periodEnd: reportPeriod.end.toISOString(), source,
       lastSyncedAt: data.lastSyncedAt?.toISOString() ?? null,
-      cards: definitions.map(({ key, aggregation }) => aggregate(key, aggregation, deltas.filter((item) => item.metricKey === key))),
+      cards, dailyRows,
       trend: buildTrend(data.snapshots, reportPeriod.start, reportPeriod.end, data.definitions, definitions), rankedNotes: buildRanking(deltas, new Map(data.definitions.map(({ key, displayName }) => [key, displayName]))),
     };
   }

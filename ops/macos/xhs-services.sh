@@ -29,7 +29,7 @@ prepare_runtime() {
     git -C "$REPO_ROOT" worktree add --detach "$SERVICE_APP" "$revision"
   fi
   [[ -x $pnpm ]] || { print -u2 -- "pnpm executable unavailable"; exit 69; }
-  (cd "$SERVICE_APP" && PATH="${node:h}:$PATH" "$pnpm" install --frozen-lockfile)
+  (cd "$SERVICE_APP" && PATH="${node:h}:$PATH" "$pnpm" install --frozen-lockfile --ignore-scripts)
 }
 
 show_paths() {

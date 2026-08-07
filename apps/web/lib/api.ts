@@ -23,6 +23,8 @@ export type CommentSyncCompleteness = { status: string; error: string | null; up
 export type Note = { id: string; accountId: string; connectorType: string; platformId: string; title: string; publishedAt: string; lastSeenAt: string; account: { id: string; displayName: string | null; platformId: string }; metrics: NoteMetric[]; commentCompleteness: CommentSyncCompleteness };
 export type NoteDetail = Note;
 export type Comment = { id: string; noteId: string | null; connectorType: string; platformId: string; parentPlatformId: string | null; content: string; publishedAt: string; likeCount: number; source: string };
+export type SettingsHealth = 'healthy' | 'unhealthy' | 'disabled';
+export type SettingsStatus = { api: SettingsHealth; database: SettingsHealth; collector: SettingsHealth; account: { displayName: string; xhsAccountId: string | null; platformId: string; avatarUrl: string | null; loginState: 'authenticated' } | null; version: string; timezone: 'Asia/Shanghai' };
 
 export type DashboardResponse = {
   period: DashboardPeriod;
@@ -130,3 +132,5 @@ export async function collectCursorPages<T>(load: (cursor: string | null) => Pro
 export function getRecentNotifications(limit = 5) {
   return apiGet<CursorPage<Notification>>(`/notifications?limit=${limit}`);
 }
+
+export function getSettingsStatus() { return apiGet<SettingsStatus>('/settings/status'); }

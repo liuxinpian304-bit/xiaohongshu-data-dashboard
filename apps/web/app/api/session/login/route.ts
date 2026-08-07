@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { BffRequestError, cookieSecureForOrigin, parseLoginCookies, readBoundedJson, validateMutationRequest, webCsrfCookie } from '../../../../lib/bff';
 const base = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
-const origin = process.env.APP_ORIGIN ?? 'http://127.0.0.1:3000';
 export async function POST(request: Request) {
-  try { validateMutationRequest(request); } catch { return NextResponse.json({error:'request origin rejected'},{status:403}); }
+  let origin:string;try { origin=validateMutationRequest(request); } catch { return NextResponse.json({error:'request origin rejected'},{status:403}); }
   let input:Record<string,unknown>;try{input=await readBoundedJson(request,2048,['password']);if(typeof input.password!=='string'||input.password.length<1||input.password.length>1024)throw new BffRequestError(400,'invalid password');}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'invalid request'},{status:error instanceof BffRequestError?error.status:400});}
   const csrf = await fetch(`${base}/auth/csrf`, { headers: { origin, 'sec-fetch-site': 'same-origin' } });
   if (!csrf.ok) return NextResponse.json({ error: 'login unavailable' }, { status: 503 });

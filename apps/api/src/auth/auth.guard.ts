@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { requireAllowedOrigin } from '@xhs/domain';
 
 type Request = { method: string; cookies?: Record<string, string>; headers: Record<string, string | undefined> };
 @Injectable()
@@ -17,8 +18,7 @@ export class AuthGuard implements CanActivate {
       const fetchSite = request.headers['sec-fetch-site'];
       if (fetchSite !== 'same-origin') throw new ForbiddenException('cross-site request rejected');
       const origin = request.headers.origin;
-      const allowed = process.env.APP_ORIGIN ?? 'http://127.0.0.1';
-      if (origin !== allowed) throw new ForbiddenException('origin rejected');
+      try { requireAllowedOrigin(origin); } catch { throw new ForbiddenException('origin rejected'); }
     }
     return true;
   }

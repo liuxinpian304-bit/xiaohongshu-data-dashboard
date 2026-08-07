@@ -7,12 +7,13 @@ import { AuthService } from './auth.service';
 import { LoginDto } from '../common/api.dto';
 import { dtoPipe } from '../common/dto.pipe';
 import { normalizeClientIp } from './proxy-config';
+import { requireAllowedOrigin } from '@xhs/domain';
 
 @Controller('auth')
 export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
   private requireSameOrigin(request: Request) {
-    if (request.headers.origin !== (process.env.APP_ORIGIN ?? 'http://127.0.0.1')) throw new ForbiddenException('origin rejected');
+    try { requireAllowedOrigin(request.headers.origin); } catch { throw new ForbiddenException('origin rejected'); }
     if (request.headers['sec-fetch-site'] !== 'same-origin') throw new ForbiddenException('cross-site request rejected');
   }
   @Get('csrf')

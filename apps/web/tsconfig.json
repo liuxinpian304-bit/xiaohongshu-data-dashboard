@@ -10,6 +10,7 @@
       "esnext"
     ],
     "module": "esnext",
+    "moduleResolution": "Bundler",
     "noEmit": true,
     "plugins": [
       {

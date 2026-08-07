@@ -10,9 +10,10 @@ import { CommentsModule } from './comments/comments.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ReportsModule } from './reports/reports.module';
 import { LocalCollectorModule } from './local-collector/local-collector.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
-  imports: [AuthModule, AccountsModule, JobsModule, NotesModule, CommentsModule, DashboardModule, ReportsModule, NotificationsModule, LocalCollectorModule],
+  imports: [AuthModule, AccountsModule, JobsModule, NotesModule, CommentsModule, DashboardModule, ReportsModule, NotificationsModule, LocalCollectorModule, SettingsModule],
   controllers: [HealthController],
 })
 export class AppModule {}

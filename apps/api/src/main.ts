@@ -11,7 +11,7 @@ import { AppModule } from './app.module';
 
 import { SafeErrorFilter } from './common/error.filter';
 import { validateAdminPasswordHash } from './auth/password-policy';
-import { AccountDeletionDto, AccountDto, AccountStateDto, AuthCsrfResponseDto, AuthLoginResponseDto, AuthorizeAccountDto, BackgroundExportDto, CommentDto, ConnectorCapabilityDto, CreateJobDto, DashboardCardDto, DashboardDailyRowDto, DashboardMetricDeltaDto, DashboardRankedNoteDto, DashboardResponseDto, DashboardTrendPointDto, DeleteAccountDto, ErrorDto, LoginDto, MissingReportFieldDto, NoteAccountDto, NoteCommentCompletenessDto, NoteDto, NoteMetricDto, NotificationDto, OkResponseDto, PageInfoDto, PushSubscriptionRequestDto, PushSubscriptionResponseDto, ReportDto, ReportEvidenceRefDto, ReportMetricDto, ReauthorizeAccountDto, SyncJobDto } from './common/api.dto';
+import { AccountDeletionDto, AccountDto, AccountStateDto, AuthCsrfResponseDto, AuthLoginResponseDto, AuthorizeAccountDto, BackgroundExportDto, CommentDto, ConnectorCapabilityDto, CreateJobDto, DashboardCardDto, DashboardDailyRowDto, DashboardMetricDeltaDto, DashboardRankedNoteDto, DashboardResponseDto, DashboardTrendPointDto, DeleteAccountDto, ErrorDto, LoginDto, MissingReportFieldDto, NoteAccountDto, NoteCommentCompletenessDto, NoteDto, NoteMetricDto, NotificationDto, OkResponseDto, PageInfoDto, PushSubscriptionRequestDto, PushSubscriptionResponseDto, ReportDto, ReportEvidenceRefDto, ReportMetricDto, ReauthorizeAccountDto, SettingsAccountDto, SettingsStatusDto, SyncJobDto } from './common/api.dto';
 import { trustProxySetting } from './auth/proxy-config';
 
 export function configureApp(app: INestApplication) {
@@ -21,7 +21,7 @@ export function configureApp(app: INestApplication) {
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true }));
   app.useGlobalFilters(new SafeErrorFilter());
   const config = new DocumentBuilder().setTitle('Xiaohongshu Dashboard API').setVersion('1.0').addCookieAuth('admin_session').build();
-  const models = [LoginDto, AuthorizeAccountDto, ReauthorizeAccountDto, DeleteAccountDto, CreateJobDto, PushSubscriptionRequestDto, ErrorDto, PageInfoDto, ConnectorCapabilityDto, AccountDto, SyncJobDto, NoteAccountDto, NoteMetricDto, NoteCommentCompletenessDto, NoteDto, CommentDto, MissingReportFieldDto, ReportEvidenceRefDto, ReportMetricDto, ReportDto, NotificationDto, DashboardCardDto, DashboardTrendPointDto, DashboardMetricDeltaDto, DashboardDailyRowDto, DashboardRankedNoteDto, DashboardResponseDto, AuthCsrfResponseDto, AuthLoginResponseDto, OkResponseDto, AccountStateDto, AccountDeletionDto, PushSubscriptionResponseDto, BackgroundExportDto];
+  const models = [LoginDto, AuthorizeAccountDto, ReauthorizeAccountDto, DeleteAccountDto, CreateJobDto, PushSubscriptionRequestDto, ErrorDto, PageInfoDto, ConnectorCapabilityDto, AccountDto, SyncJobDto, NoteAccountDto, NoteMetricDto, NoteCommentCompletenessDto, NoteDto, CommentDto, MissingReportFieldDto, ReportEvidenceRefDto, ReportMetricDto, ReportDto, NotificationDto, DashboardCardDto, DashboardTrendPointDto, DashboardMetricDeltaDto, DashboardDailyRowDto, DashboardRankedNoteDto, DashboardResponseDto, AuthCsrfResponseDto, AuthLoginResponseDto, OkResponseDto, AccountStateDto, AccountDeletionDto, PushSubscriptionResponseDto, BackgroundExportDto, SettingsAccountDto, SettingsStatusDto];
   const document = SwaggerModule.createDocument(app, config, { operationIdFactory: (controller, method) => `${controller}_${method}`, extraModels: models });
   for (const [path, item] of Object.entries(document.paths)) for (const [method, operation] of Object.entries(item ?? {})) {
     if (!operation || !['get', 'post', 'patch', 'delete'].includes(method)) continue;
@@ -45,6 +45,7 @@ export function configureApp(app: INestApplication) {
   for (const [path, model] of [['/accounts', AccountDto], ['/jobs', SyncJobDto], ['/notes', NoteDto], ['/comments', CommentDto], ['/reports', ReportDto]] as const) document.paths[path]!.get!.responses['200'] = page(getSchemaPath(model));
   document.paths['/accounts/authorized-official']!.get!.responses['200'] = page(getSchemaPath(AccountDto));
   document.paths['/dashboard']!.get!.responses['200'] = success(getSchemaPath(DashboardResponseDto));
+  document.paths['/settings/status']!.get!.responses['200'] = success(getSchemaPath(SettingsStatusDto));
   document.paths['/auth/csrf']!.get!.responses['200'] = success(getSchemaPath(AuthCsrfResponseDto));
   document.paths['/auth/login']!.post!.responses['201'] = success(getSchemaPath(AuthLoginResponseDto));
   document.paths['/auth/logout']!.post!.responses['201'] = success(getSchemaPath(OkResponseDto));

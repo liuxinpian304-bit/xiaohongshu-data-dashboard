@@ -1,4 +1,5 @@
 export type { DataAvailability } from './data-availability';
+export { allowedOrigins, primaryAllowedOrigin, requireAllowedOrigin } from './allowed-origins';
 export type { CommentCompleteness } from './comment';
 export type { Metric } from './metric';
 export { getCompletedMonthToDatePeriod, getReportPeriod } from './report-period';

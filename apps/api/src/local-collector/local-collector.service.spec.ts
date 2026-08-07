@@ -92,6 +92,22 @@ describe('LocalCollectorService', () => {
     expect(statusCalls).toBeGreaterThan(0);
   });
 
+  it('rejects a selected account before collection when the authenticated identity differs', async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith('/v1/session/status')) return Response.json({
+        state: 'authenticated', changedAt: '2026-08-07T00:00:00.000Z', identityVerifiedAt: '2026-08-07T00:00:00.000Z',
+        identity: { platformId: 'logged-in-user', xhsAccountId: 'red-1', displayName: '当前登录账号', avatarUrl: null },
+      });
+      throw new Error('collection must not start');
+    });
+    const db = { account: { findUnique: vi.fn(async () => ({ id: '00000000-0000-4000-8000-000000000099', connectorType: 'self-scrape', platformId: 'selected-user' })) } } as any;
+    const service = new LocalCollectorService({ enabled: true, url: 'http://127.0.0.1:43127', token, fetcher, db });
+
+    await expect(service.startSync('00000000-0000-4000-8000-000000000099')).rejects.toThrow('collector_identity_mismatch');
+    expect(db.account.findUnique).toHaveBeenCalledWith({ where: { id: '00000000-0000-4000-8000-000000000099' }, select: { id: true, connectorType: true, platformId: true } });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts only bounded PNG QR responses', async () => {
     const png = pngFixture(320, 320);
     const fetcher = vi.fn(async () => new Response(png, {

@@ -5,12 +5,14 @@ import { LocalCollectorController } from './local-collector.controller';
 describe('LocalCollectorController', () => {
   it('exposes explicit session and collection actions', async () => {
     const action = vi.fn(async (name: string) => ({ action: name }));
-    const controller = new LocalCollectorController({ action, startSync: async () => ({ action: 'sync' }), syncStatus: async () => ({ action: 'sync-status' }) } as any);
+    const startSync = vi.fn(async () => ({ action: 'sync' }));
+    const controller = new LocalCollectorController({ action, startSync, syncStatus: async () => ({ action: 'sync-status' }) } as any);
 
     await expect(controller.start()).resolves.toEqual({ action: 'start' });
     await expect(controller.refresh()).resolves.toEqual({ action: 'refresh' });
     await expect(controller.close()).resolves.toEqual({ action: 'close' });
-    await expect(controller.sync()).resolves.toEqual({ action: 'sync' });
+    await expect(controller.sync({ accountId: '00000000-0000-4000-8000-000000000099' })).resolves.toEqual({ action: 'sync' });
+    expect(startSync).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000099');
     await expect(controller.syncStatus()).resolves.toEqual({ action: 'sync-status' });
   });
 

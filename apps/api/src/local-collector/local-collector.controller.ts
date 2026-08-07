@@ -1,8 +1,10 @@
-import { Controller, Get, Inject, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Post, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 
 import { AuthGuard } from '../auth/auth.guard';
 import { LocalCollectorService } from './local-collector.service';
+import { LocalCollectorSyncDto } from '../common/api.dto';
+import { dtoPipe } from '../common/dto.pipe';
 
 @Controller('local-collector') @UseGuards(AuthGuard)
 export class LocalCollectorController {
@@ -11,7 +13,7 @@ export class LocalCollectorController {
   @Post('start') start() { return this.collector.action('start'); }
   @Post('refresh') refresh() { return this.collector.action('refresh'); }
   @Post('close') close() { return this.collector.action('close'); }
-  @Post('sync') sync() { return this.collector.startSync(); }
+  @Post('sync') sync(@Body(dtoPipe(LocalCollectorSyncDto)) input: LocalCollectorSyncDto) { return this.collector.startSync(input.accountId); }
   @Get('sync-status') syncStatus() { return this.collector.syncStatus(); }
   @Get('qr') async qr(@Res() response: Response) {
     const qr = await this.collector.qr();

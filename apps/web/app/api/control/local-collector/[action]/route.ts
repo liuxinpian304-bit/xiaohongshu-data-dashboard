@@ -12,5 +12,5 @@ export async function GET(_request: Request, context: { params: Promise<{ action
 export async function POST(request: Request, context: { params: Promise<{ action: string }> }) {
   const { action } = await context.params;
   if (!allowedPost.has(action)) return Response.json({ error: 'not found' }, { status: 404 });
-  return forwardMutation(request, `/local-collector/${action}`, 'POST', [], 256);
+  return forwardMutation(request, `/local-collector/${action}`, 'POST', action === 'sync' ? ['accountId'] : [], 256);
 }

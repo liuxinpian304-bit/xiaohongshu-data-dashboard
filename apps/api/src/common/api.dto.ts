@@ -13,6 +13,7 @@ export class AuthorizeAccountDto {
 export class ReauthorizeAccountDto { @IsString() @MinLength(1) @MaxLength(10_000) @ApiProperty({ type: String, writeOnly: true }) secret!: string; @IsString() @MinLength(1) @MaxLength(50) @ApiProperty({ type: String }) kind!: string; }
 export class DeleteAccountDto { @IsOptional() @IsBoolean() @ApiPropertyOptional({ type: Boolean, default: true }) retainData?: boolean; }
 export class CreateJobDto { @IsUUID() @ApiProperty({ type: String, format: 'uuid' }) accountId!: string; }
+export class LocalCollectorSyncDto { @IsOptional() @IsUUID() @ApiPropertyOptional({ type: String, format: 'uuid' }) accountId?: string; }
 export class PaginationQueryDto { @IsOptional() @IsUUID() @ApiPropertyOptional({ type: String, format: 'uuid' }) cursor?: string; @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(200) @ApiPropertyOptional({ type: Number, default: 50 }) limit?: number; }
 export class AccountQueryDto extends PaginationQueryDto { @IsOptional() @IsUUID() @ApiPropertyOptional({ type: String, format: 'uuid' }) accountId?: string; }
 export class CommentQueryDto extends AccountQueryDto {

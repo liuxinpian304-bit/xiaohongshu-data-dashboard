@@ -26,9 +26,13 @@ export class LocalCollectorService {
     };
   }
 
-  async startSync() {
+  async startSync(accountId?: string) {
     const session = await this.action('status');
     if (session.state !== 'authenticated' || !session.identity || !session.identityVerifiedAt) throw new ServiceUnavailableException('collector_identity_unavailable');
+    if (accountId) {
+      const selected = await (this.configuration.db ?? prisma).account.findUnique({ where: { id: accountId }, select: { id: true, connectorType: true, platformId: true } });
+      if (!selected || selected.connectorType !== 'self-scrape' || selected.platformId !== session.identity.platformId) throw new ServiceUnavailableException('collector_identity_mismatch');
+    }
     await (this.configuration.bindIdentity ?? ((identity, verifiedAt) => bindCollectorIdentity(this.configuration.db ?? prisma, identity, verifiedAt)))(session.identity, session.identityVerifiedAt);
     const status = await this.action('sync');
     if (status.runId && this.imports.get(status.runId) !== 'running') {

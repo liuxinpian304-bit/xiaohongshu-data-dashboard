@@ -22,22 +22,9 @@ export class AccountsService {
     });
     return page(items, limit);
   }
-  async authorize(input: { connectorType: string; platformId: string; displayName?: string; secret: string; kind: string }) {
-    if (['official', 'self_import'].includes(input.connectorType)) throw new ForbiddenException('connector authorization is not available');
-    return prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<Array<{ id: string; revocationState: string }>>`SELECT id, "revocationState" FROM "Account" WHERE "connectorType" = ${input.connectorType} AND "platformId" = ${input.platformId} FOR UPDATE`;
-      if (locked[0] && !['none', 'completed'].includes(locked[0].revocationState)) throw new ConflictException('account revocation is not complete');
-      const account = locked[0]
-        ? await tx.account.update({ where: { id: locked[0].id }, data: { displayName: input.displayName, revocationState: 'none', revocationRetainData: null, revocationRequestedAt: null, revocationFailure: null, revocationOperationId: null } })
-        : await tx.account.create({ data: { connectorType: input.connectorType, platformId: input.platformId, displayName: input.displayName } });
-      const credentialId = randomUUID(); const encrypted = new CredentialCipher().encrypt(input.secret, account.id, credentialId);
-      const old = await tx.credential.findUnique({ where: { accountId_kind: { accountId: account.id, kind: input.kind } } });
-      await tx.credential.create({ data: { id: credentialId, accountId: account.id, kind: `${input.kind}:pending:${credentialId}`, secret: encrypted } });
-      if (old) await tx.credential.delete({ where: { id: old.id } });
-      await tx.credential.update({ where: { id: credentialId }, data: { kind: input.kind } });
-      await tx.auditLog.create({ data: { actor: 'admin', action: 'account.authorized', entityType: 'Account', entityId: account.id, details: { connectorType: input.connectorType } } });
-      return tx.account.findUniqueOrThrow({ where: { id: account.id }, select: publicAccountSelect });
-    });
+  async authorize(input: { connectorType: string; platformId: string; displayName?: string; secret: string; kind: string }): Promise<{ id: string }> {
+    void input;
+    throw new ForbiddenException('connector authorization is not available');
   }
   async deactivate(id: string) {
     const account = await prisma.account.findUnique({ where: { id }, select: { connectorType: true } }); if (!account) throw new NotFoundException('managed account not found'); if (['official', 'self_import'].includes(account.connectorType)) throw new ForbiddenException('connector management is not available');

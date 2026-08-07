@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: postgres
       XHS_RUNTIME_PASSWORD: ${XHS_RUNTIME_PASSWORD:?set XHS_RUNTIME_PASSWORD}
     ports:
-      - "${POSTGRES_PORT:-55432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d xhs_dashboard"]
       interval: 2s
@@ -22,7 +22,7 @@ services:
     image: redis:8-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s

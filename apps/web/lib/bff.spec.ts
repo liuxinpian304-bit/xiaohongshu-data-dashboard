@@ -24,6 +24,19 @@ describe('mutation BFF boundary', () => {
       if (previous === undefined) delete process.env.APP_ORIGINS; else process.env.APP_ORIGINS = previous;
     }
   });
+  it('accepts an allowed same-origin request when mobile Safari omits fetch metadata', () => {
+    const previous = process.env.APP_ORIGINS;
+    process.env.APP_ORIGINS = 'http://127.0.0.1:3000,http://192.168.0.7:3000';
+    try {
+      const request = new Request('http://192.168.0.7:3000/api/session/login', {
+        method: 'POST',
+        headers: { origin: 'http://192.168.0.7:3000' },
+      });
+      expect(validateMutationRequest(request)).toBe('http://192.168.0.7:3000');
+    } finally {
+      if (previous === undefined) delete process.env.APP_ORIGINS; else process.env.APP_ORIGINS = previous;
+    }
+  });
   it('rejects cross-origin and cross-site mutation requests', () => {
     expect(() => validateMutationRequest(new Request('http://127.0.0.1/api/jobs', { method: 'POST', headers: { origin: 'https://evil.test', 'sec-fetch-site': 'cross-site' } }), 'http://127.0.0.1')).toThrow('origin rejected');
   });

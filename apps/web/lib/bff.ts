@@ -17,7 +17,7 @@ export function validateMutationRequest(request: Request, allowedOrigin?: string
   if (allowedOrigin ? origin !== allowedOrigin : false) throw new Error('origin rejected');
   const validatedOrigin = allowedOrigin ? allowedOrigin : requireAllowedOrigin(origin);
   const site = request.headers.get('sec-fetch-site');
-  if (site !== 'same-origin') throw new Error('fetch metadata rejected');
+  if (site && site !== 'same-origin') throw new Error('fetch metadata rejected');
   return validatedOrigin;
 }
 export function mutationHeaders(session: string, csrf: string, origin = primaryAllowedOrigin()) {

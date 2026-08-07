@@ -18,6 +18,33 @@ node_bin() {
   command -v node 2>/dev/null || print -- "$NODE_FALLBACK"
 }
 
+is_private_ipv4() {
+  local ip=${1:-} part
+  local -a parts
+  [[ $ip == <->.<->.<->.<-> ]] || return 1
+  parts=(${(s:.:)ip})
+  (( ${#parts} == 4 )) || return 1
+  for part in $parts; do (( part >= 0 && part <= 255 )) || return 1; done
+  [[ $parts[1] == 10 ]] && return 0
+  [[ $parts[1] == 192 && $parts[2] == 168 ]] && return 0
+  [[ $parts[1] == 172 && $parts[2] -ge 16 && $parts[2] -le 31 ]]
+}
+
+private_ipv4() {
+  local interface ip
+  for interface in en0 en1; do
+    ip=$(ipconfig getifaddr "$interface" 2>/dev/null || true)
+    if is_private_ipv4 "$ip"; then print -- "$ip"; return 0; fi
+  done
+  return 1
+}
+
+application_origins() {
+  local ip
+  ip=$(private_ipv4 2>/dev/null || true)
+  if [[ -n $ip ]]; then print -- "http://127.0.0.1:3000,http://$ip:3000"; else print -- 'http://127.0.0.1:3000'; fi
+}
+
 prepare_runtime() {
   [[ ${XHS_SKIP_RUNTIME_PREPARE:-0} == 1 ]] && return
   local revision pnpm=$PNPM_FALLBACK
@@ -111,12 +138,12 @@ run_service() {
   export PATH="${node:h}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
   case $service in
     web)
-      export API_BASE_URL=http://127.0.0.1:3001 APP_ORIGIN=http://127.0.0.1:3000
+      export API_BASE_URL=http://127.0.0.1:3001 APP_ORIGIN=http://127.0.0.1:3000 APP_ORIGINS=$(application_origins)
       cd "$REPO_ROOT/apps/web"
-      exec "$node" "$REPO_ROOT/apps/web/node_modules/next/dist/bin/next" dev --hostname 127.0.0.1
+      exec "$node" "$REPO_ROOT/apps/web/node_modules/next/dist/bin/next" dev --hostname 0.0.0.0
       ;;
     api)
-      export API_PORT=3001 APP_ORIGIN=http://127.0.0.1:3000
+      export API_PORT=3001 API_HOST=127.0.0.1 APP_ORIGIN=http://127.0.0.1:3000 APP_ORIGINS=$(application_origins)
       export LOCAL_XHS_COLLECTOR_ENABLED=true LOCAL_XHS_COLLECTOR_URL=http://127.0.0.1:43127
       cd "$REPO_ROOT/apps/api"
       exec "$node" "$REPO_ROOT/apps/api/node_modules/tsx/dist/cli.mjs" watch src/main.ts
@@ -181,7 +208,7 @@ healthy_url() {
 
 show_status() {
   load_runtime
-  local failed=0 state
+  local failed=0 state ip
   state=$(docker inspect --format '{{.State.Health.Status}}' dashboard-mvp-postgres-1 2>/dev/null || print unavailable)
   print -- "postgres=$state"
   [[ $state == healthy ]] || failed=1
@@ -191,6 +218,8 @@ show_status() {
   if healthy_url 'http://127.0.0.1:3000/dashboard?period=daily'; then print -- "web=healthy"; else print -- "web=unhealthy"; failed=1; fi
   if healthy_url http://127.0.0.1:3001/health; then print -- "api=healthy"; else print -- "api=unhealthy"; failed=1; fi
   if curl -fsS -o /dev/null -H "Authorization: Bearer $LOCAL_XHS_COLLECTOR_TOKEN" http://127.0.0.1:43127/v1/session/status; then print -- "collector=healthy"; else print -- "collector=unhealthy"; failed=1; fi
+  ip=$(private_ipv4 2>/dev/null || true)
+  if [[ -n $ip ]]; then print -- "lan_url=http://$ip:3000"; else print -- 'lan_url=unavailable'; fi
   return $failed
 }
 

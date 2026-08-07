@@ -64,7 +64,16 @@ cat > "$stub_dir/launchctl" <<'EOF'
 print -- "$*" >> "$XHS_LAUNCHCTL_LOG"
 exit 0
 EOF
+cat > "$stub_dir/ipconfig" <<'EOF'
+#!/bin/zsh
+[[ ${1:-} == getifaddr && ${2:-} == en0 ]] && print -- '192.168.0.7'
+EOF
+cat > "$stub_dir/node" <<'EOF'
+#!/bin/zsh
+print -- "APP_ORIGINS=${APP_ORIGINS:-} COLLECTOR_HOST=${LOCAL_XHS_COLLECTOR_HOST:-} ARGS=$*"
+EOF
 chmod +x "$stub_dir/docker" "$stub_dir/curl" "$stub_dir/launchctl"
+chmod +x "$stub_dir/ipconfig" "$stub_dir/node"
 
 status_output=$(PATH="$stub_dir:$PATH" $script status)
 [[ $status_output == *"postgres=healthy"* ]] || fail "postgres health missing"
@@ -72,6 +81,14 @@ status_output=$(PATH="$stub_dir:$PATH" $script status)
 [[ $status_output == *"web=healthy"* ]] || fail "web health missing"
 [[ $status_output == *"api=healthy"* ]] || fail "api health missing"
 [[ $status_output == *"collector=healthy"* ]] || fail "collector health missing"
+[[ $status_output == *"lan_url=http://192.168.0.7:3000"* ]] || fail "LAN URL missing"
+
+mkdir -p "$XHS_SERVICE_HOME/app/apps/web" "$XHS_SERVICE_HOME/app/apps/collector"
+web_run=$(PATH="$stub_dir:$PATH" $XHS_SERVICE_HOME/bin/xhs-launch web)
+[[ $web_run == *"APP_ORIGINS=http://127.0.0.1:3000,http://192.168.0.7:3000"* ]] || fail "web allowed origins missing"
+[[ $web_run == *"--hostname 0.0.0.0"* ]] || fail "web must listen on LAN"
+collector_run=$(PATH="$stub_dir:$PATH" $XHS_SERVICE_HOME/bin/xhs-launch collector)
+[[ $collector_run == *"COLLECTOR_HOST=127.0.0.1"* ]] || fail "collector must remain loopback-only"
 
 print -- "PASS: service health contract"
 

@@ -15,6 +15,6 @@ zsh ops/macos/xhs-services.sh uninstall
 
 首次安装会提示输入驾驶舱管理员密码。私有运行配置保存在 `~/Library/Application Support/xiaohongshu-dashboard/runtime.env`，权限为 `0600`；日志保存在同目录的 `logs` 文件夹。LaunchAgent 文件位于 `~/Library/LaunchAgents`，其中不保存密码或令牌。
 
-网页地址为 `http://127.0.0.1:3000`，API 健康检查为 `http://127.0.0.1:3001/health`。采集器仅监听本机 `127.0.0.1:43127`。
+本机网页地址为 `http://127.0.0.1:3000`。运行 `zsh ops/macos/xhs-services.sh status` 会额外显示当前 `lan_url`，同一局域网内的设备可使用该地址访问。只有 Web 的 `3000` 端口监听局域网；API 仍位于本机 `127.0.0.1:3001`，采集器仍仅监听 `127.0.0.1:43127`。
 
 `uninstall` 只卸载后台服务，不删除 PostgreSQL 数据、Docker 数据卷、小红书扫码登录配置或业务数据。

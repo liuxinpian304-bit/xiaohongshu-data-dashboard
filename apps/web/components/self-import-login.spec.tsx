@@ -14,6 +14,17 @@ const accounts = [
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('SelfImportLogin', () => {
+  it('automatically restores the persisted collector session for saved accounts', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => new Response(JSON.stringify(init?.method === 'POST' ? {
+      state: 'authenticated', changedAt: '2026-08-07T00:00:01.000Z', identityVerifiedAt: '2026-08-07T00:00:01.000Z', identity: { platformId: 'stable-user-1', xhsAccountId: 'red_123', displayName: '真实昵称', avatarUrl: null },
+    } : { state: 'idle', changedAt: '2026-08-07T00:00:00.000Z' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<SelfImportLogin accounts={accounts} />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '立即同步' })).toBeEnabled());
+    expect(fetcher).toHaveBeenCalledWith('/api/control/local-collector/start', expect.objectContaining({ method: 'POST' }));
+  });
+
   it('shows a real same-origin QR after starting login', async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const state = init?.method === 'POST' ? 'awaiting_scan' : 'idle';

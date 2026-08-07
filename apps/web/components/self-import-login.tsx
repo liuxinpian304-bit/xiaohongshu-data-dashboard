@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 type SessionState = 'idle' | 'launching' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'closed' | 'error';
 type SessionIdentity = { platformId: string; xhsAccountId: string | null; displayName: string; avatarUrl: string | null };
@@ -20,6 +20,7 @@ export function SelfImportLogin({ accounts = [] }: { accounts?: LoginAccount[] }
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const restoreAttempted = useRef(false);
 
   const readJson = useCallback(async <T,>(response: Response): Promise<T> => { const body = await response.json(); if (!response.ok) throw new Error(typeof body?.error === 'string' ? body.error : '操作失败'); return body as T; }, []);
   const request = useCallback(async (name: 'start' | 'refresh' | 'close', body = '{}') => readJson<SessionStatus>(await fetch(`/api/control/local-collector/${name}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })), [readJson]);
@@ -27,6 +28,11 @@ export function SelfImportLogin({ accounts = [] }: { accounts?: LoginAccount[] }
   const refreshSync = useCallback(async () => { const response = await fetch('/api/control/local-collector/sync-status', { cache: 'no-store' }); if (response.ok) setSync(await readJson<SyncStatus>(response)); }, [readJson]);
 
   useEffect(() => { void refreshStatus(); }, [refreshStatus]);
+  useEffect(() => {
+    if (!accounts.length || status?.state !== 'idle' || restoreAttempted.current) return;
+    restoreAttempted.current = true;
+    request('start').then(setStatus).catch(() => setMessage('现有账号会话恢复失败，请重新登录。'));
+  }, [accounts.length, request, status?.state]);
   useEffect(() => { if (!status || !['launching', 'awaiting_scan', 'verification_required'].includes(status.state)) return; const timer = window.setInterval(() => { void refreshStatus(true); }, 2_000); return () => window.clearInterval(timer); }, [refreshStatus, status]);
   useEffect(() => { if (sync?.state !== 'running') return; const timer = window.setInterval(() => { void refreshSync(); }, 2_000); return () => window.clearInterval(timer); }, [refreshSync, sync?.state]);
   useEffect(() => { if (!status?.qrExpiresAt || status.state !== 'awaiting_scan') { setSecondsLeft(0); return; } const update = () => setSecondsLeft(Math.max(0, Math.ceil((new Date(status.qrExpiresAt!).getTime() - Date.now()) / 1_000))); update(); const timer = window.setInterval(update, 1_000); return () => window.clearInterval(timer); }, [status?.qrExpiresAt, status?.state]);

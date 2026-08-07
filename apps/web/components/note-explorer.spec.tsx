@@ -29,6 +29,8 @@ describe('NoteExplorer', () => {
     expect(screen.getByText('86')).toBeInTheDocument();
     expect(screen.getAllByText('尚未同步')).toHaveLength(2);
     expect(screen.getByRole('link', { name: '一眼看懂的数据笔记' })).toHaveAttribute('href', '/notes/note-1');
+    expect(document.body.textContent).not.toContain('演示连接器');
+    expect(document.body.textContent).not.toContain('演示数据');
   });
 
   it('switches to cards and remembers the preference', () => {

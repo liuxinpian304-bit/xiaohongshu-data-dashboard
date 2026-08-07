@@ -25,7 +25,6 @@ function metricLabel(key: string) {
 function sourceLabel(source: string | null) {
   if (source === 'official') return '官方 API';
   if (source === 'self-scrape') return '账号自抓数据';
-  if (source === 'mock') return '演示连接器';
   if (source === 'mixed') return '多个数据来源';
   return source ?? '暂无快照来源';
 }

@@ -15,6 +15,7 @@ describe('SettingsOverview', () => {
     expect(screen.getByText('小红书号：95874286519')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '前往账号管理' })).toHaveAttribute('href', '/accounts');
     expect(document.body.textContent).not.toMatch(/password|token|cookie|database_url/i);
+    expect(document.body.textContent).not.toContain('演示数据');
   });
 
   it('shows localized degraded and no-account states', () => {

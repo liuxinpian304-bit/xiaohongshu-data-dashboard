@@ -17,8 +17,8 @@ function metricValue(metrics: NoteMetric[], key: typeof metricKeys[number]) {
 
 function sourceLabel(connectorType: string) {
   if (connectorType === 'self-scrape' || connectorType === 'self_import') return '账号自抓数据';
-  if (connectorType === 'mock') return '演示数据';
-  return '官方 API';
+  if (connectorType === 'official') return '官方 API';
+  return '其他数据来源';
 }
 
 export function NoteExplorer({ notes }: { notes: Note[] }) {

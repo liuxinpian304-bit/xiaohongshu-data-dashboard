@@ -24,7 +24,7 @@ export async function importSelfScrapeCollection(input: Iterable<unknown>, optio
     const noteMetrics = metrics.filter(({ metric }) => metric.noteId === event.note.platformId);
     for (const metricEvent of noteMetrics) {
       const metric = metricEvent.metric; const displayName = definitions[metric.key];
-      const definition = await options.db.metricDefinition.upsert({ where: { key_source_version: { key: metric.key, source: 'self-scrape', version: 'jsonl-v1' } }, create: { key: metric.key, displayName, unit: 'count', aggregation: 'cumulative_delta', source: 'self-scrape', version: 'jsonl-v1', effectiveFrom: new Date(0) }, update: {} });
+      const definition = await options.db.metricDefinition.upsert({ where: { platform_key_source_version: { platform: 'xiaohongshu', key: metric.key, source: 'self-scrape', version: 'jsonl-v1' } }, create: { platform: 'xiaohongshu', key: metric.key, displayName, unit: 'count', aggregation: 'cumulative_delta', source: 'self-scrape', version: 'jsonl-v1', effectiveFrom: new Date(0) }, update: {} });
       const capturedAt = new Date(metric.capturedAt);
       const current = await options.db.metricSnapshot.findFirst({ where: { noteId: note.id, metricDefinitionId: definition.id, capturedAt, supersededAt: null } });
       const exact = current && current.availability === metric.availability && current.value?.toString() === (metric.value === null ? undefined : String(metric.value));

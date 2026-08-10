@@ -110,8 +110,8 @@ export async function commitRecord(db: DatabaseClient, accountPlatformId: string
     for (const [key, displayName] of definitions) {
       const metric = record.metrics.find((candidate) => candidate.key === key)!;
       const definition = await tx.metricDefinition.upsert({
-        where: { key_source_version: { key, source: 'self-scrape', version: 'jsonl-v1' } },
-        create: { key, displayName, unit: 'count', aggregation: 'cumulative_delta', source: 'self-scrape', version: 'jsonl-v1', effectiveFrom: new Date(0) },
+        where: { platform_key_source_version: { platform: 'xiaohongshu', key, source: 'self-scrape', version: 'jsonl-v1' } },
+        create: { platform: 'xiaohongshu', key, displayName, unit: 'count', aggregation: 'cumulative_delta', source: 'self-scrape', version: 'jsonl-v1', effectiveFrom: new Date(0) },
         update: {},
       });
       const capturedAt = new Date(metric.capturedAt);

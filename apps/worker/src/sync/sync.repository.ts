@@ -95,12 +95,12 @@ export class SyncRepository {
         const aggregationVersion = metrics[0]?.metricMetadata?.[key]?.aggregationVersion ?? `${source}-v1`;
         const effectiveFrom = new Date(Math.min(...metrics.map(({ capturedAt }) => context ? new Date(context.windowEndExclusive).getTime() - 1 : new Date(capturedAt).getTime())));
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${key}|${source}`}))`;
-        let definition = await tx.metricDefinition.findUnique({ where: { key_source_version: { key, source, version: aggregationVersion } } });
+        let definition = await tx.metricDefinition.findUnique({ where: { platform_key_source_version: { platform: 'xiaohongshu', key, source, version: aggregationVersion } } });
         if (!definition) {
           const current = await tx.metricDefinition.findFirst({ where: { key, source, effectiveTo: null }, orderBy: { effectiveFrom: 'desc' } });
           if (current && effectiveFrom <= current.effectiveFrom) throw new Error('metric definition transition must move forward');
           if (current) await tx.metricDefinition.update({ where: { id: current.id }, data: { effectiveTo: effectiveFrom } });
-          definition = await tx.metricDefinition.create({ data: { key, displayName, unit: 'count', aggregation: metrics[0]?.metricMetadata?.[key]?.aggregation ?? aggregation, source, version: aggregationVersion, effectiveFrom } });
+          definition = await tx.metricDefinition.create({ data: { platform: 'xiaohongshu', key, displayName, unit: 'count', aggregation: metrics[0]?.metricMetadata?.[key]?.aggregation ?? aggregation, source, version: aggregationVersion, effectiveFrom } });
         }
         for (const metric of metrics) {
           const metadata = metric.metricMetadata?.[key];

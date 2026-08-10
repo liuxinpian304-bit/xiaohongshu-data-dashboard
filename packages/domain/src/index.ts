@@ -10,3 +10,22 @@ export type { ReportPeriod, ReportType } from './report-period';
 export type { SyncJob, SyncJobStatus } from './sync-job';
 export { DEFAULT_WEB_PUSH_HOST_SUFFIXES, PushEndpointPolicy, isPublicAddress } from './push-endpoint-policy';
 export type { PinnedPushEndpoint } from './push-endpoint-policy';
+export {
+  OBSERVATION_SOURCES,
+  PLATFORMS,
+  parseObservationSource,
+  parsePlatform,
+  platformIdentityKey,
+} from './platform';
+export type {
+  CommentCompletenessState,
+  ContentKind,
+  ObservationSource,
+  Platform,
+} from './platform';
+export type {
+  PlatformCollectionEventV2,
+  PlatformEndReason,
+  PlatformMetricAvailability,
+  PlatformMetricKey,
+} from './platform-event';

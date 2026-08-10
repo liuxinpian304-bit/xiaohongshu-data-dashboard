@@ -7,3 +7,5 @@ export type { Comment } from '../generated/client/client';
 export type { CommentCompleteness, SyncJobStatus } from '@xhs/domain';
 export { importSelfScrapeCollection } from './self-scrape-collection';
 export type { SelfScrapeCollectionOptions, SelfScrapeCollectionSummary } from './self-scrape-collection';
+export { importPlatformCollection } from './platform-collection';
+export type { PlatformCollectionOptions, PlatformImportSummary } from './platform-collection';

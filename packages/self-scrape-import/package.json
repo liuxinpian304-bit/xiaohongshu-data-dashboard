@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
+  "dependencies": {
+    "@xhs/domain": "workspace:*"
+  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

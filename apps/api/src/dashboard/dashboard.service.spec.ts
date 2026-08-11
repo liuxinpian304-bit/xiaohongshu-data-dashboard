@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { completedCollectionJobWhere, DashboardService, filterDashboardEvidence, type DashboardStore } from './dashboard.service';
+import { completedCollectionJobWhere, DashboardService, filterDashboardEvidence, readableAccountWhere, type DashboardStore } from './dashboard.service';
 
 const snap = (overrides: Partial<any> = {}) => ({ noteId: 'note-1', noteTitle: '第一条笔记', accountId: 'account-1', publishedAt: new Date('2025-12-01T00:00:00Z'), metricDefinitionId: 'likes-id', metricKey: 'likes', aggregation: 'cumulative_delta', availability: 'available', value: '100', capturedAt: new Date('2025-12-28T10:00:00Z'), source: 'official', ...overrides });
 const storeWith = (snapshots: any[], lastSyncedAt: Date | null = new Date('2026-01-04T06:00:00Z'), notes: Array<{ id: string; publishedAt: Date }> = []): DashboardStore => ({ async isReadableAccount() { return true; }, async read() { return { definitions: [{ id: 'likes-id', key: 'likes', displayName: '点赞', aggregation: 'cumulative_delta' }, { id: 'views-id', key: 'views', displayName: '访客', aggregation: 'cumulative_delta' }], snapshots, notes, lastSyncedAt }; } });
 
 describe('DashboardService', () => {
+  it('selects both Xiaohongshu and Douyin accounts by real data source', () => {
+    expect(readableAccountWhere('self-scrape', new Date())).toEqual({ source: 'self-scrape' });
+    expect(readableAccountWhere('official', new Date())).toEqual(expect.objectContaining({ connectorType: 'official' }));
+  });
   it('does not use an old-definition baseline for the current definition segment', () => {
     const definitions = [{ id: 'v2', effectiveFrom: new Date('2026-08-01'), effectiveTo: null }];
     const evidence = filterDashboardEvidence(definitions, [

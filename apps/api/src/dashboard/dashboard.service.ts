@@ -4,10 +4,10 @@ import { aggregateMetricSeries, getCompletedMonthToDatePeriod, getReportPeriod, 
 
 export const DASHBOARD_STORE = Symbol('DASHBOARD_STORE');
 const SOURCE = 'official';
-function readableAccountWhere(source: string, now: Date) {
+export function readableAccountWhere(source: string, now: Date) {
   return source === SOURCE
     ? { connectorType: source, credentials: { some: { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } }, capabilities: { some: { enabled: true } } }
-    : { connectorType: source };
+    : { source };
 }
 export function completedCollectionJobWhere(source: string, accountId: string | undefined, now: Date) {
   return { status: 'succeeded' as const, currentStage: 'complete', completedAt: { not: null }, account: readableAccountWhere(source, now), ...(accountId ? { accountId } : {}) };
@@ -36,7 +36,7 @@ export class PrismaDashboardStore implements DashboardStore {
     return Boolean(await prisma.account.findFirst({ where: { id: accountId, ...readableAccountWhere(source, now) }, select: { id: true } }));
   }
   async read(periodStart: Date, periodEnd: Date, source: string, accountId: string | undefined, now: Date) {
-    const noteWhere = { ...(accountId ? { accountId } : {}), connectorType: source, account: readableAccountWhere(source, now) };
+    const noteWhere = { ...(accountId ? { accountId } : {}), source, account: readableAccountWhere(source, now) };
     const [definitions, inPeriod, baselines, notes, lastSync] = await Promise.all([
       prisma.metricDefinition.findMany({ where: { source, effectiveFrom: { lte: periodEnd }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: periodStart } }] }, orderBy: [{ key: 'asc' }, { effectiveFrom: 'asc' }], select: { id: true, key: true, displayName: true, aggregation: true, effectiveFrom: true, effectiveTo: true } }),
       prisma.metricSnapshot.findMany({

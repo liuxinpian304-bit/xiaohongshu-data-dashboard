@@ -56,7 +56,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (dashboardResult.status === 'unauthorized' || notificationsResult.status === 'unauthorized') redirect(`/login?next=${encodeURIComponent(`/dashboard?period=${period}${suffix}`)}`);
 
   if (dashboardResult.status === 'error') {
-    const invalidMessage = invalidAccount ? '所选真实账号不存在，请重新选择已连接的小红书账号。' : `${dashboardResult.message}，请检查服务状态后重试。`;
+    const invalidMessage = invalidAccount ? '所选真实账号不存在，请重新选择已连接的平台账号。' : `${dashboardResult.message}，请检查服务状态后重试。`;
     return (
       <div className="dashboard-page">
         <header className="dashboard-heading dashboard-heading--error"><div><h1>{period === 'daily' ? '每日数据' : periodLabels[period]}</h1><p>按上海时区生成，数据未到齐时会明确标记。</p></div><PeriodTabs period={period} accountId={accountId} /></header>
@@ -76,7 +76,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <header className="dashboard-heading">
         <div><h1>{period === 'daily' ? '每日数据' : periodLabels[period]}</h1><p>{period === 'daily' ? '本月每天单独展示，默认查看 1 日至昨天。' : '按上海时区生成，数据未到齐时会明确标记。'}</p></div>
         <PeriodTabs period={period} accountId={accountId} />
-        <form className="account-filter" action="/dashboard" method="get"><input type="hidden" name="period" value={period} /><label htmlFor="dashboard-account">小红书账号</label><select id="dashboard-account" name="accountId" defaultValue={accountId ?? ''}><option value="">全部小红书账号</option>{dashboardAccounts.map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select><button type="submit">查看</button></form>
+        <form className="account-filter" action="/dashboard" method="get"><input type="hidden" name="period" value={period} /><label htmlFor="dashboard-account">平台账号</label><select id="dashboard-account" name="accountId" defaultValue={accountId ?? ''}><option value="">全部平台账号</option>{dashboardAccounts.map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select><button type="submit">查看</button></form>
         <dl className="report-meta">
           <div><dt>统计日期</dt><dd>{formatReportRange(dashboard.periodStart, dashboard.periodEnd)}</dd></div>
           <div><dt>最后同步</dt><dd>{dashboard.lastSyncedAt ? formatShanghaiDateTime(dashboard.lastSyncedAt) : '尚无成功同步'}</dd></div>

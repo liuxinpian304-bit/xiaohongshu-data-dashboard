@@ -12,7 +12,6 @@ interface Configuration { enabled: boolean; url: string; token: string; fetcher?
 export class DouyinLocalService {
   private readonly configuration: Configuration;
   private readonly imports = new Map<string, 'running' | 'completed' | 'failed'>();
-  private readonly runIdentities = new Map<string, string>();
 
   constructor(configuration?: Configuration) {
     this.configuration = configuration ?? {
@@ -40,11 +39,9 @@ export class DouyinLocalService {
 
   async startCollection(sessionId: string) {
     const id = validSessionId(sessionId);
-    const session = await this.requestStatus(`/v3/douyin/sessions/${id}`, 'GET');
-    if (session.state !== 'authenticated' || !session.identity) throw new ServiceUnavailableException('douyin_identity_unavailable');
     const status = validateCollectionStatus(await this.request(`/v3/douyin/sessions/${id}/collection/start`, 'POST'));
     if (status.runId && this.imports.get(status.runId) !== 'running') {
-      this.imports.set(status.runId, 'running'); this.runIdentities.set(status.runId, session.identity.platformId);
+      this.imports.set(status.runId, 'running');
       void this.importRun(id, status.runId);
     }
     return status;
@@ -89,12 +86,13 @@ export class DouyinLocalService {
       if (!body || typeof body !== 'object' || Array.isArray(body)) this.invalid();
       const envelope = body as Record<string, unknown>;
       if (envelope.runId !== runId || !Array.isArray(envelope.events) || envelope.events.length > 1_000_000) this.invalid();
-      const accountPlatformId = this.runIdentities.get(runId); if (!accountPlatformId) throw new Error('douyin_identity_unavailable');
+      const account = envelope.events.find((event) => event && typeof event === 'object' && !Array.isArray(event) && (event as Record<string, unknown>).type === 'account') as { account?: { platformId?: unknown } } | undefined;
+      const accountPlatformId = account?.account?.platformId;
+      if (typeof accountPlatformId !== 'string' || !accountPlatformId.startsWith('douyin:')) throw new Error('douyin_identity_unavailable');
       const importer = this.configuration.importer ?? importPlatformCollection;
       await importer(envelope.events, { db: this.configuration.db ?? prisma, platform: 'douyin', source: 'self-scrape', accountPlatformId, runId });
       this.imports.set(runId, 'completed');
     } catch { this.imports.set(runId, 'failed'); }
-    finally { this.runIdentities.delete(runId); }
   }
 
   private async bindIfVerified(status: DouyinSessionStatus) {

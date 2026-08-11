@@ -45,7 +45,7 @@ describe('DouyinLocalService', () => {
       if (url.endsWith(`/sessions/${sessionId}`)) return Response.json({ sessionId, state: 'authenticated', changedAt: '2026-08-11T06:00:00.000Z', identity, identityVerifiedAt: '2026-08-11T06:00:00.000Z' });
       if (url.endsWith('/collection/start') && init?.method === 'POST') return Response.json({ runId: 'run-dy-1', state: 'running', stage: 'account', processed: 0, total: 0, incompleteNotes: 0, changedAt: '2026-08-11T06:00:01.000Z' });
       if (url.endsWith('/collection/status')) return Response.json({ runId: 'run-dy-1', state: 'completed', stage: 'complete', processed: 1, total: 1, incompleteNotes: 0, changedAt: '2026-08-11T06:00:02.000Z' });
-      if (url.includes('/collection/events?runId=')) return Response.json({ runId: 'run-dy-1', events: [{ version: 2, platform: 'douyin', source: 'self-scrape', runId: 'run-dy-1', type: 'completed', completedAt: '2026-08-11T06:00:02.000Z' }] });
+      if (url.includes('/collection/events?runId=')) return Response.json({ runId: 'run-dy-1', events: [{ version: 2, platform: 'douyin', source: 'self-scrape', runId: 'run-dy-1', type: 'account', account: { platformId: identity.platformId, displayName: identity.displayName, avatarUrl: null } }, { version: 2, platform: 'douyin', source: 'self-scrape', runId: 'run-dy-1', type: 'completed', completedAt: '2026-08-11T06:00:02.000Z' }] });
       throw new Error(`unexpected ${url}`);
     });
     const db = { account: { upsert: vi.fn(async () => ({})) } } as any;

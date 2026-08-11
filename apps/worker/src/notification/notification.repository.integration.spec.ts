@@ -3,7 +3,7 @@ import { createDatabaseClient } from '@xhs/database';
 
 import { PrismaNotificationRepository, type DomainEvent, NotificationService } from './notification.service';
 
-const connectionString = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:55432/xhs_dashboard';
+const connectionString = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:55432/xhs_dashboard_test';
 const firstDb = createDatabaseClient(connectionString);
 const secondDb = createDatabaseClient(connectionString);
 

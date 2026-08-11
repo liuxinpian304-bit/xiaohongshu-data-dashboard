@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { createDatabaseClient } from '@xhs/database';
 import { SyncRepository } from './sync.repository';
 
-const url = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:55432/xhs_dashboard';
+const url = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:55432/xhs_dashboard_test';
 const firstDb = createDatabaseClient(url); const secondDb = createDatabaseClient(url);
 
 describe('SyncRepository concurrent comment inserts', () => {

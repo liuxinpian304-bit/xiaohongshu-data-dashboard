@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { databaseUrlFromEnvironment, verifyRuntimeDatabaseRole } from './client';
+import { assertTestDatabase, databaseUrlFromEnvironment, verifyRuntimeDatabaseRole } from './client';
 
 const client = (row: Record<string, unknown>) => ({ $queryRaw: async () => [row] }) as never;
 
 describe('runtime database startup guard', () => {
+  it('rejects the runtime database when privileged test cleanup is enabled', () => {
+    expect(() => assertTestDatabase('postgresql://postgres:postgres@localhost:55432/xhs_dashboard')).toThrow('runtime_database_forbidden');
+    expect(() => assertTestDatabase('postgresql://postgres:postgres@localhost:55432/xhs_dashboard_test')).not.toThrow();
+  });
+
+  it('applies the test database guard before creating a privileged test client', () => {
+    expect(() => databaseUrlFromEnvironment({
+      DATABASE_URL: 'postgresql://postgres:postgres@localhost:55432/xhs_dashboard',
+      NODE_ENV: 'test',
+      DATABASE_ALLOW_PRIVILEGED_TEST_ROLE: 'true',
+    })).toThrow('runtime_database_forbidden');
+  });
+
   it('fails closed when DATABASE_URL is missing', () => {
     expect(() => databaseUrlFromEnvironment({})).toThrow('DATABASE_URL is required');
   });

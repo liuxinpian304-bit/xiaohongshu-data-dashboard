@@ -5,8 +5,19 @@ export { Prisma } from '../generated/client/client';
 
 type DatabaseEnvironment = Record<string, string | undefined>;
 
+export function assertTestDatabase(url: string) {
+  let databaseName: string;
+  try {
+    databaseName = new URL(url).pathname.replace(/^\//, '');
+  } catch {
+    throw new Error('invalid_database_url');
+  }
+  if (databaseName !== 'xhs_dashboard_test') throw new Error('runtime_database_forbidden');
+}
+
 export function databaseUrlFromEnvironment(environment: DatabaseEnvironment = process.env) {
   if (!environment.DATABASE_URL) throw new Error('DATABASE_URL is required');
+  if (environment.NODE_ENV === 'test' && environment.DATABASE_ALLOW_PRIVILEGED_TEST_ROLE === 'true') assertTestDatabase(environment.DATABASE_URL);
   return environment.DATABASE_URL;
 }
 

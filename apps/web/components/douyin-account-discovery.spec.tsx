@@ -9,12 +9,13 @@ import { DouyinAccountDiscovery } from './douyin-account-discovery';
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('DouyinAccountDiscovery', () => {
-  it('shows the authenticated Douyin account discovered from Xiaohuohua', async () => {
+  it('never describes an unverified Xiaohuohua label as logged in', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ items: [{ platform: 'douyin', platformId: 'visible:Tonic', displayName: 'Tonic', avatarUrl: null, loginState: 'authenticated', surfaceId: 'xiaohuohua:0' }] })));
 
     render(<DouyinAccountDiscovery />);
 
-    expect(await screen.findByRole('heading', { name: 'Tonic' })).toBeVisible();
-    expect(screen.getByText('抖音 · 登录有效')).toBeVisible();
+    expect(await screen.findByText(/需要通过抖音官方页面扫码核验/)).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Tonic' })).not.toBeInTheDocument();
+    expect(screen.queryByText('抖音 · 登录有效')).not.toBeInTheDocument();
   });
 });

@@ -41,7 +41,7 @@ export function createCollectorServer(options: { token: string; manager: Session
     const route = `${request.method} ${parsedUrl.pathname}`;
     try {
       if (route === 'GET /v1/session/status') return send(response, 200, options.manager.status());
-      if (route === 'GET /v2/accounts') return send(response, 200, { items: options.accounts ? await options.accounts() : [] });
+      if (route === 'GET /v2/accounts') return send(response, 200, { items: [] });
       if (route === 'POST /v1/session/start') return send(response, 200, await options.manager.start());
       if (route === 'POST /v1/session/refresh') return send(response, 200, await options.manager.refresh());
       if (route === 'GET /v1/session/qr') return sendQr(response, options.manager.qr());

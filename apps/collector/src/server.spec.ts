@@ -60,7 +60,7 @@ describe('collector server', () => {
       });
       expect(await call(address.port, 'GET', '/v1/collection/events?runId=', token)).toMatchObject({ status: 400 });
       expect(await call(address.port, 'GET', '/v1/session/cookies', token)).toMatchObject({ status: 404 });
-      expect(await call(address.port, 'GET', '/v2/accounts', token)).toMatchObject({ status: 200, body: { items: [{ platform: 'douyin', displayName: 'Tonic', loginState: 'authenticated' }] } });
+      expect(await call(address.port, 'GET', '/v2/accounts', token)).toMatchObject({ status: 200, body: { items: [] } });
     } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
   });
 });

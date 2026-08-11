@@ -13,10 +13,8 @@ const fixtureSession = {
 };
 
 describe('discoverAccounts', () => {
-  it('discovers a visible Douyin account without reading credential storage', async () => {
-    await expect(discoverAccounts(fixtureSession)).resolves.toEqual([
-      expect.objectContaining({ platform: 'douyin', displayName: 'Tonic', loginState: 'authenticated' }),
-    ]);
+  it('does not promote a visible Xiaohuohua label to an authenticated Douyin account', async () => {
+    await expect(discoverAccounts(fixtureSession)).resolves.toEqual([]);
   });
 
   it('reports an unavailable bridge without throwing', async () => {

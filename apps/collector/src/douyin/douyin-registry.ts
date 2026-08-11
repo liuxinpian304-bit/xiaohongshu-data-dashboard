@@ -56,6 +56,7 @@ export class DouyinRegistry {
     const { manager } = await this.manager(sessionId);
     const result = this.public(sessionId, await manager.close());
     this.managers.delete(sessionId);
+    await this.store.remove(sessionId, true);
     return result;
   }
 

@@ -29,6 +29,7 @@ describe('DouyinPageAdapter', () => {
       platformId: 'douyin:7390000000000000000', douyinAccountId: 'tonic123', displayName: 'Tonic', avatarUrl: 'https://p3.douyinpic.com/avatar.jpeg',
     });
     expect(parseDouyinIdentity({ data: { user: { nickname: 'Tonic' } } })).toBeNull();
+    expect(parseDouyinIdentity({ data: { user: { uid: '92769419069', unique_id: 'dyczxzs', nickname: '抖音作者助手' } } })).toBeNull();
   });
 
   it('reads only a stable identity captured from an official creator response', async () => {

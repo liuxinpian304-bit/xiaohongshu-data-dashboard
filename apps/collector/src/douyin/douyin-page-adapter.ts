@@ -69,6 +69,7 @@ export function parseDouyinIdentity(input: unknown): DouyinIdentity | null {
     const displayName = text(value.nickname) ?? text(value.nick_name);
     const douyinAccountId = text(value.unique_id) ?? text(value.short_id) ?? text(value.douyin_id);
     if (uid && displayName && douyinAccountId) {
+      if (douyinAccountId.toLowerCase() === 'dyczxzs' || displayName === '抖音作者助手') continue;
       const avatarUrl = httpsUrl(value.avatar_url) ?? httpsUrl(value.avatar) ?? null;
       return { platformId: `douyin:${uid}`, douyinAccountId, displayName, avatarUrl };
     }

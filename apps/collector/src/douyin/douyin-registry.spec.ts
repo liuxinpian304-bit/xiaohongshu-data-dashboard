@@ -25,6 +25,8 @@ describe('DouyinRegistry', () => {
     expect(created).toMatchObject({ sessionId: expect.any(String), state: 'awaiting_scan' });
     expect(created).not.toHaveProperty('profileDirectory');
     expect(await registry.listSessions()).toEqual([created]);
+    await registry.close(created.sessionId);
+    expect(await registry.listSessions()).toEqual([]);
   });
 
   it('rejects unknown session ids before manager access', async () => {

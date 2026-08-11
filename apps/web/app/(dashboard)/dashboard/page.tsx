@@ -7,6 +7,7 @@ import { MetricTrendChart } from '../../../components/metric-trend-chart';
 import { PeriodTabs } from '../../../components/period-tabs';
 import { getDashboard, getRecentNotifications, getSelfScrapeAccounts, type DashboardCard, type DashboardPeriod } from '../../../lib/api';
 import { formatMetric, formatReportRange, formatShanghaiDateTime } from '../../../lib/format';
+import { accountLabel } from '../../../lib/account-label';
 
 const metricLabels: Record<string, string> = {
   notes: '笔记', likes: '点赞', favorites: '收藏', comments: '评论',
@@ -75,7 +76,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <header className="dashboard-heading">
         <div><h1>{period === 'daily' ? '每日数据' : periodLabels[period]}</h1><p>{period === 'daily' ? '本月每天单独展示，默认查看 1 日至昨天。' : '按上海时区生成，数据未到齐时会明确标记。'}</p></div>
         <PeriodTabs period={period} accountId={accountId} />
-        <form className="account-filter" action="/dashboard" method="get"><input type="hidden" name="period" value={period} /><label htmlFor="dashboard-account">小红书账号</label><select id="dashboard-account" name="accountId" defaultValue={accountId ?? ''}><option value="">全部真实账号</option>{dashboardAccounts.map((account) => <option key={account.id} value={account.id}>{account.displayName || account.platformId}</option>)}</select><button type="submit">查看</button></form>
+        <form className="account-filter" action="/dashboard" method="get"><input type="hidden" name="period" value={period} /><label htmlFor="dashboard-account">小红书账号</label><select id="dashboard-account" name="accountId" defaultValue={accountId ?? ''}><option value="">全部小红书账号</option>{dashboardAccounts.map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select><button type="submit">查看</button></form>
         <dl className="report-meta">
           <div><dt>统计日期</dt><dd>{formatReportRange(dashboard.periodStart, dashboard.periodEnd)}</dd></div>
           <div><dt>最后同步</dt><dd>{dashboard.lastSyncedAt ? formatShanghaiDateTime(dashboard.lastSyncedAt) : '尚无成功同步'}</dd></div>

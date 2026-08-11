@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { CommentTree } from '../../../components/comment-tree';
 import { CommentExport } from '../../../components/comment-export';
 import { getAccounts, getComments, getNotes } from '../../../lib/api';
+import { accountLabel } from '../../../lib/account-label';
 
 type Query = { accountId?: string; noteId?: string; from?: string; to?: string; keyword?: string; newOnly?: string; cursor?: string };
 
@@ -15,7 +16,7 @@ export default async function CommentsPage({ searchParams }: { searchParams: Pro
   return <div className="workflow-page">
     <header className="workflow-heading"><div><h1>评论</h1><p>筛选、逐页查看和导出当前范围的评论。</p></div><CommentExport query={{accountId:p.accountId,noteId:p.noteId,from:p.from,to:p.to,keyword:p.keyword,newOnly:p.newOnly?'true':undefined}} /></header>
     <form className="filter-panel">
-      <label>账号<select name="accountId" defaultValue={p.accountId ?? ''}><option value="">全部账号</option>{accounts.status === 'ok' ? accounts.data.items.map((a) => <option key={a.id} value={a.id}>{a.displayName || a.platformId}</option>) : null}</select></label>
+      <label>账号<select name="accountId" defaultValue={p.accountId ?? ''}><option value="">全部账号</option>{accounts.status === 'ok' ? accounts.data.items.map((a) => <option key={a.id} value={a.id}>{accountLabel(a)}</option>) : null}</select></label>
       <label>笔记<select name="noteId" defaultValue={p.noteId ?? ''}><option value="">全部笔记</option>{notes.status === 'ok' ? notes.data.items.map((n) => <option key={n.id} value={n.id}>{n.title}</option>) : null}</select></label>
       <label>开始日期<input name="from" type="date" defaultValue={p.from} /></label><label>结束日期<input name="to" type="date" defaultValue={p.to} /></label>
       <label>关键词<input name="keyword" defaultValue={p.keyword} placeholder="搜索当前页" /></label><label className="check-filter"><input name="newOnly" type="checkbox" value="1" defaultChecked={Boolean(p.newOnly)} />仅看近24小时新增</label><button>应用筛选</button>

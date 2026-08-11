@@ -6,7 +6,7 @@ import { page } from '../common/pagination.dto';
 import { CredentialCipher } from '../security/credential-cipher';
 import { ConnectorRegistry } from './connector-registry';
 
-const publicAccountSelect = { id: true, connectorType: true, platformId: true, xhsAccountId: true, displayName: true, avatarUrl: true, identityVerifiedAt: true, createdAt: true, updatedAt: true, capabilities: true } as const;
+const publicAccountSelect = { id: true, platform: true, source: true, connectorType: true, platformId: true, xhsAccountId: true, displayName: true, avatarUrl: true, identityVerifiedAt: true, createdAt: true, updatedAt: true, capabilities: true } as const;
 
 @Injectable()
 export class AccountsService {

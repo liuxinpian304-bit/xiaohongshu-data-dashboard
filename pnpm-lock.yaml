@@ -86,6 +86,9 @@ importers:
 
   apps/collector:
     dependencies:
+      '@xhs/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       playwright:
         specifier: ^1.51.1
         version: 1.62.1

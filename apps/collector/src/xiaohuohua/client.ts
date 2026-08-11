@@ -5,6 +5,7 @@ export const XIAOHUOHUA_BRIDGE_URL = 'http://127.0.0.1:43128';
 export interface XiaohuohuaSession {
   status: 'available' | 'unavailable';
   visibleText(): Promise<string[]>;
+  close?(): Promise<void>;
 }
 
 export function validateEndpoint(input: string): string {
@@ -32,6 +33,7 @@ export class XiaohuohuaClient {
             return text.slice(0, 20_000);
           }));
         },
+        async close() { await browser.close(); },
       };
     } catch {
       return unavailableSession;

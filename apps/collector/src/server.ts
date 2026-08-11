@@ -6,6 +6,8 @@ import { pathToFileURL } from 'node:url';
 
 import { CollectionRun, type CollectionProgress, type CollectionStatus } from './collection-run';
 import { LocalXhsSessionManager, type QrSnapshot, type SessionStatus } from './session-manager';
+import { discoverAccounts, type DiscoveredPlatformAccount } from './xiaohuohua/account-discovery';
+import { XiaohuohuaClient } from './xiaohuohua/client';
 
 interface CollectorConfiguration { enabled: boolean; host: string; token: string }
 interface SessionManagerLike {
@@ -30,7 +32,7 @@ export function createRuntimeCollection<TEvent>(manager: {
   return new CollectionRun<TEvent>({ collect: (progress, emit, runId) => manager.collect(progress, emit, runId) });
 }
 
-export function createCollectorServer(options: { token: string; manager: SessionManagerLike; collection: CollectionRunLike }): Server {
+export function createCollectorServer(options: { token: string; manager: SessionManagerLike; collection: CollectionRunLike; accounts?: () => Promise<DiscoveredPlatformAccount[]> }): Server {
   return createServer(async (request, response) => {
     response.setHeader('content-type', 'application/json; charset=utf-8');
     response.setHeader('cache-control', 'no-store');
@@ -39,6 +41,7 @@ export function createCollectorServer(options: { token: string; manager: Session
     const route = `${request.method} ${parsedUrl.pathname}`;
     try {
       if (route === 'GET /v1/session/status') return send(response, 200, options.manager.status());
+      if (route === 'GET /v2/accounts') return send(response, 200, { items: options.accounts ? await options.accounts() : [] });
       if (route === 'POST /v1/session/start') return send(response, 200, await options.manager.start());
       if (route === 'POST /v1/session/refresh') return send(response, 200, await options.manager.refresh());
       if (route === 'GET /v1/session/qr') return sendQr(response, options.manager.qr());
@@ -91,7 +94,12 @@ async function main() {
   const profileDirectory = process.env.LOCAL_XHS_PROFILE_DIR ?? join(homedir(), 'Library', 'Application Support', 'xiaohongshu-dashboard', 'collector-profile');
   const manager = new LocalXhsSessionManager({ profileDirectory });
   const collection = createRuntimeCollection(manager);
-  const server = createCollectorServer({ token: configuration.token, manager, collection });
+  const xiaohuohua = new XiaohuohuaClient();
+  const accounts = async () => {
+    const session = await xiaohuohua.connect();
+    try { return await discoverAccounts(session); } finally { await session.close?.(); }
+  };
+  const server = createCollectorServer({ token: configuration.token, manager, collection, accounts });
   const close = async () => { await manager.close(); server.close(); };
   process.once('SIGINT', () => { void close(); });
   process.once('SIGTERM', () => { void close(); });

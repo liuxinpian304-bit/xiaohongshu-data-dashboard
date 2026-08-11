@@ -1,7 +1,7 @@
 import { authenticatedGet, forwardMutation } from '../../../../../lib/bff';
 
 const allowedPost = new Set(['start', 'refresh', 'close', 'sync']);
-const allowedGet = new Set(['status', 'sync-status']);
+const allowedGet = new Set(['status', 'sync-status', 'accounts']);
 
 export async function GET(_request: Request, context: { params: Promise<{ action: string }> }) {
   const { action } = await context.params;

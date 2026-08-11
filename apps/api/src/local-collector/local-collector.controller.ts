@@ -10,6 +10,7 @@ import { dtoPipe } from '../common/dto.pipe';
 export class LocalCollectorController {
   constructor(@Inject(LocalCollectorService) private readonly collector: LocalCollectorService) {}
   @Get('status') status() { return this.collector.action('status'); }
+  @Get('accounts') accounts() { return this.collector.accounts(); }
   @Post('start') start() { return this.collector.action('start'); }
   @Post('refresh') refresh() { return this.collector.action('refresh'); }
   @Post('close') close() { return this.collector.action('close'); }

@@ -51,6 +51,14 @@ describe('LocalCollectorService', () => {
     await expect(service.action('status')).rejects.toThrow('collector_unavailable');
   });
 
+  it('returns only validated visible platform accounts from the collector', async () => {
+    const fetcher = vi.fn(async () => Response.json({ items: [{ platform: 'douyin', platformId: 'visible:Tonic', displayName: 'Tonic', avatarUrl: null, loginState: 'authenticated', surfaceId: 'xiaohuohua:0' }] }));
+    const service = new LocalCollectorService({ enabled: true, url: 'http://127.0.0.1:43127', token, fetcher });
+
+    await expect(service.accounts()).resolves.toEqual({ items: [expect.objectContaining({ platform: 'douyin', displayName: 'Tonic' })] });
+    expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:43127/v2/accounts', expect.objectContaining({ method: 'GET' }));
+  });
+
   it('validates collection progress through fixed sync actions', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       runId: 'run-1', state: 'running', stage: 'comments', processed: 7,

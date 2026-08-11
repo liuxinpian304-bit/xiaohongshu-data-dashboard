@@ -36,7 +36,8 @@ describe('collector server', () => {
       status: () => ({ runId: 'run-1', state: 'running' as const, stage: 'notes' as const, processed: 2, total: 8, incompleteNotes: 0, changedAt: '2026-08-04T00:00:05.000Z' }),
       events: (runId: string) => runId === 'run-1' ? [{ version: 1, type: 'completed', source: 'self-scrape', runId, completedAt: '2026-08-04T00:00:06.000Z' }] : [],
     };
-    const server = createCollectorServer({ token, manager, collection });
+    const accounts = async () => [{ platform: 'douyin' as const, platformId: 'visible:Tonic', displayName: 'Tonic', avatarUrl: null, loginState: 'authenticated' as const, surfaceId: 'xiaohuohua:0' }];
+    const server = createCollectorServer({ token, manager, collection, accounts });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('missing address');
@@ -59,6 +60,7 @@ describe('collector server', () => {
       });
       expect(await call(address.port, 'GET', '/v1/collection/events?runId=', token)).toMatchObject({ status: 400 });
       expect(await call(address.port, 'GET', '/v1/session/cookies', token)).toMatchObject({ status: 404 });
+      expect(await call(address.port, 'GET', '/v2/accounts', token)).toMatchObject({ status: 200, body: { items: [{ platform: 'douyin', displayName: 'Tonic', loginState: 'authenticated' }] } });
     } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
   });
 });

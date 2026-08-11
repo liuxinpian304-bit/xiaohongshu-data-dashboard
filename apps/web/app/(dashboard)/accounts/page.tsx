@@ -2,6 +2,7 @@ import React from 'react';
 import { redirect } from 'next/navigation';
 
 import { SelfImportLogin } from '../../../components/self-import-login';
+import { DouyinAccountDiscovery } from '../../../components/douyin-account-discovery';
 import { getAccounts } from '../../../lib/api';
 
 export default async function AccountsPage({ searchParams }: { searchParams: Promise<{ cursor?: string }> }) {
@@ -15,6 +16,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
   return <div className="workflow-page">
     <header className="workflow-heading"><div><h1>账号</h1><p>管理已登录的小红书账号，并为每个账号独立同步真实数据。</p></div></header>
     <SelfImportLogin accounts={realAccounts.map(({ id, platformId, xhsAccountId, displayName, avatarUrl, identityVerifiedAt }) => ({ id, platformId, xhsAccountId, displayName, avatarUrl, identityVerifiedAt }))} />
+    <DouyinAccountDiscovery />
     <section className="source-notice"><strong>账号自抓数据</strong><span>当前真实数据由本机已登录的小红书账号同步。</span></section>
     <section className="source-notice"><strong>官方 API 尚未配置</strong><span>当前不会请求任何未公开接口；获批后可在此接入。</span></section>
     {result.status === 'error' ? <section className="load-error" role="alert"><h2>账号暂时无法加载</h2><p>{result.message}</p><a href="/accounts">重新加载</a></section> : realAccounts.length ? <section className="workflow-list">{realAccounts.map((account) => <article key={account.id}>

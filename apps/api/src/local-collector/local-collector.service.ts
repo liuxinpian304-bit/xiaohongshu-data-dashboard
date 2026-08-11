@@ -7,6 +7,7 @@ export type CollectorAction = CollectorSessionAction | CollectorCollectionAction
 export interface CollectorIdentity { platformId: string; xhsAccountId: string | null; displayName: string; avatarUrl: string | null }
 export interface CollectorStatus { state: 'idle' | 'launching' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'closed' | 'error'; changedAt: string; qrExpiresAt?: string; errorCode?: string; identity?: CollectorIdentity; identityVerifiedAt?: string }
 export interface CollectorQr { bytes: Buffer; etag: string; expires: string }
+export interface DiscoveredCollectorAccount { platform: 'xiaohongshu' | 'douyin'; platformId: string; displayName: string; avatarUrl: string | null; loginState: 'authenticated'; surfaceId: string }
 export interface CollectorCollectionStatus { runId: string | null; state: 'idle' | 'running' | 'completed' | 'failed'; stage: 'account' | 'notes' | 'metrics' | 'comments' | 'replies' | 'writing' | 'reports' | 'complete'; processed: number; total: number; incompleteNotes: number; changedAt: string; errorCode?: 'collector_collection_failed' }
 interface ImportOptions { db: DatabaseClient; runId: string; accountPlatformId: string }
 interface ImportSummary { accountId: string; notesChanged: number; snapshotsChanged: number; commentsChanged: number; incompleteNotes: number; sha256: string }
@@ -94,6 +95,19 @@ export class LocalCollectorService {
     return { bytes, etag, expires };
   }
 
+  async accounts(): Promise<{ items: DiscoveredCollectorAccount[] }> {
+    this.assertConfiguration();
+    const response = await (this.configuration.fetcher ?? fetch)(`${this.configuration.url}/v2/accounts`, {
+      method: 'GET', headers: { authorization: `Bearer ${this.configuration.token}` }, signal: AbortSignal.timeout(5_000),
+    }).catch(() => { throw new ServiceUnavailableException('collector_unavailable'); });
+    if (!response.ok) throw new ServiceUnavailableException('collector_unavailable');
+    const body = await response.json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ServiceUnavailableException('collector_response_invalid');
+    const value = body as Record<string, unknown>;
+    if (Object.keys(value).some((key) => key !== 'items') || !Array.isArray(value.items) || value.items.length > 100 || !value.items.every(isDiscoveredAccount)) throw new ServiceUnavailableException('collector_response_invalid');
+    return { items: value.items };
+  }
+
   private async importRun(runId: string) {
     try {
       let status: CollectorCollectionStatus | null = null;
@@ -172,6 +186,19 @@ function isCollectorIdentity(value: unknown): value is CollectorIdentity {
   const text = (field: unknown, nullable = false, max = 200) => nullable && field === null || typeof field === 'string' && field.trim().length > 0 && field.length <= max;
   if (!text(identity.platformId) || !text(identity.xhsAccountId, true) || !text(identity.displayName) || !text(identity.avatarUrl, true, 2_048)) return false;
   if (typeof identity.avatarUrl === 'string') { try { if (new URL(identity.avatarUrl).protocol !== 'https:') return false; } catch { return false; } }
+  return true;
+}
+
+function isDiscoveredAccount(value: unknown): value is DiscoveredCollectorAccount {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const account = value as Record<string, unknown>;
+  if (Object.keys(account).some((key) => !['platform', 'platformId', 'displayName', 'avatarUrl', 'loginState', 'surfaceId'].includes(key))) return false;
+  const bounded = (field: unknown, max = 200) => typeof field === 'string' && field.trim().length > 0 && field.length <= max;
+  if (!['xiaohongshu', 'douyin'].includes(String(account.platform)) || !bounded(account.platformId) || !bounded(account.displayName) || account.loginState !== 'authenticated' || !bounded(account.surfaceId)) return false;
+  if (account.avatarUrl !== null) {
+    if (!bounded(account.avatarUrl, 2_048)) return false;
+    try { if (new URL(String(account.avatarUrl)).protocol !== 'https:') return false; } catch { return false; }
+  }
   return true;
 }
 

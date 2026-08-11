@@ -6,6 +6,26 @@ import { createCollectorServer, createRuntimeCollection, validateCollectorConfig
 const token = 'a'.repeat(48);
 
 describe('collector server', () => {
+  it('exposes authenticated account-scoped Douyin session routes', async () => {
+    const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const registry = {
+      createSession: async () => ({ sessionId, state: 'awaiting_scan', changedAt: '2026-08-11T06:00:00.000Z' }),
+      listSessions: async () => [{ sessionId, state: 'awaiting_scan', changedAt: '2026-08-11T06:00:00.000Z' }],
+      status: async () => ({ sessionId, state: 'awaiting_scan', changedAt: '2026-08-11T06:00:00.000Z' }),
+      refresh: async () => ({ sessionId, state: 'authenticated', changedAt: '2026-08-11T06:01:00.000Z' }),
+      qr: async () => ({ bytes: pngFixture(320, 320), contentType: 'image/png' as const, expiresAt: '2026-08-11T06:02:00.000Z' }),
+      close: async () => ({ sessionId, state: 'closed', changedAt: '2026-08-11T06:03:00.000Z' }),
+    };
+    const server = createCollectorServer({ token, manager: idleManager(), collection: idleCollection(), douyin: registry });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing address');
+    try {
+      expect(await call(address.port, 'POST', '/v3/douyin/sessions', token)).toMatchObject({ status: 201, body: { sessionId, state: 'awaiting_scan' } });
+      expect(await call(address.port, 'GET', '/v3/douyin/sessions', token)).toMatchObject({ status: 200, body: { items: [{ sessionId }] } });
+      expect(await call(address.port, 'GET', `/v3/douyin/sessions/${sessionId}`, token)).toMatchObject({ status: 200, body: { state: 'awaiting_scan' } });
+      expect(await callRaw(address.port, 'GET', `/v3/douyin/sessions/${sessionId}/qr`, token)).toMatchObject({ status: 200, headers: { 'content-type': 'image/png' } });
+    } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+  });
   it('wires runtime collection to the authenticated session manager', async () => {
     const collect = vi.fn(async (_progress, emit, runId) => emit({ type: 'completed', runId }));
     const runtime = createRuntimeCollection({ collect });
@@ -64,6 +84,9 @@ describe('collector server', () => {
     } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
   });
 });
+
+function idleManager() { return { status: () => ({ state: 'idle' as const, changedAt: new Date(0).toISOString() }), start: async function(){return this.status();}, refresh: async function(){return this.status();}, qr: () => ({ bytes: pngFixture(1, 1), contentType: 'image/png' as const, expiresAt: new Date().toISOString(), etag: 'x' }), close: async function(){return this.status();} }; }
+function idleCollection() { return { start: () => ({ runId: null, state: 'idle' as const, stage: 'account' as const, processed: 0, total: 0, incompleteNotes: 0, changedAt: new Date(0).toISOString() }), status: () => ({ runId: null, state: 'idle' as const, stage: 'account' as const, processed: 0, total: 0, incompleteNotes: 0, changedAt: new Date(0).toISOString() }) }; }
 
 function call(port: number, method: string, path: string, bearer?: string) {
   return new Promise<{ status: number; body: any }>((resolve, reject) => {

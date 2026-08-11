@@ -18,6 +18,7 @@ interface SessionManagerLike {
   close(): Promise<SessionStatus>;
 }
 interface CollectionRunLike { start(): CollectionStatus; status(): CollectionStatus; events?(runId: string): unknown[] }
+interface DouyinRegistryLike { createSession(): Promise<unknown>; listSessions(): Promise<unknown[]>; status(id:string):Promise<unknown>; refresh(id:string):Promise<unknown>; qr(id:string):Promise<{bytes:Buffer;contentType:'image/png';expiresAt:string}>; close(id:string):Promise<unknown> }
 
 export function validateCollectorConfiguration(configuration: CollectorConfiguration) {
   if (!configuration.enabled) throw new Error('collector_disabled');
@@ -32,7 +33,7 @@ export function createRuntimeCollection<TEvent>(manager: {
   return new CollectionRun<TEvent>({ collect: (progress, emit, runId) => manager.collect(progress, emit, runId) });
 }
 
-export function createCollectorServer(options: { token: string; manager: SessionManagerLike; collection: CollectionRunLike; accounts?: () => Promise<DiscoveredPlatformAccount[]> }): Server {
+export function createCollectorServer(options: { token: string; manager: SessionManagerLike; collection: CollectionRunLike; accounts?: () => Promise<DiscoveredPlatformAccount[]>; douyin?: DouyinRegistryLike }): Server {
   return createServer(async (request, response) => {
     response.setHeader('content-type', 'application/json; charset=utf-8');
     response.setHeader('cache-control', 'no-store');
@@ -40,6 +41,16 @@ export function createCollectorServer(options: { token: string; manager: Session
     const parsedUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
     const route = `${request.method} ${parsedUrl.pathname}`;
     try {
+      if (route === 'POST /v3/douyin/sessions' && options.douyin) return send(response, 201, await options.douyin.createSession());
+      if (route === 'GET /v3/douyin/sessions' && options.douyin) return send(response, 200, { items: await options.douyin.listSessions() });
+      const douyinRoute = /^\/v3\/douyin\/sessions\/([0-9a-f-]{36})(\/qr|\/refresh)?$/.exec(parsedUrl.pathname);
+      if (douyinRoute && options.douyin) {
+        const id = douyinRoute[1]!; const action = douyinRoute[2] ?? '';
+        if (request.method === 'GET' && action === '') return send(response, 200, await options.douyin.status(id));
+        if (request.method === 'GET' && action === '/qr') return sendDouyinQr(response, await options.douyin.qr(id));
+        if (request.method === 'POST' && action === '/refresh') return send(response, 200, await options.douyin.refresh(id));
+        if (request.method === 'DELETE' && action === '') return send(response, 200, await options.douyin.close(id));
+      }
       if (route === 'GET /v1/session/status') return send(response, 200, options.manager.status());
       if (route === 'GET /v2/accounts') return send(response, 200, { items: [] });
       if (route === 'POST /v1/session/start') return send(response, 200, await options.manager.start());
@@ -80,6 +91,16 @@ function sendQr(response: ServerResponse, snapshot: QrSnapshot) {
   response.setHeader('content-length', snapshot.bytes.byteLength);
   response.setHeader('cache-control', 'no-store');
   response.setHeader('etag', snapshot.etag);
+  response.setHeader('expires', snapshot.expiresAt);
+  response.setHeader('x-content-type-options', 'nosniff');
+  response.end(snapshot.bytes);
+}
+
+function sendDouyinQr(response: ServerResponse, snapshot: { bytes: Buffer; contentType: 'image/png'; expiresAt: string }) {
+  response.statusCode = 200;
+  response.setHeader('content-type', snapshot.contentType);
+  response.setHeader('content-length', snapshot.bytes.byteLength);
+  response.setHeader('cache-control', 'no-store');
   response.setHeader('expires', snapshot.expiresAt);
   response.setHeader('x-content-type-options', 'nosniff');
   response.end(snapshot.bytes);

@@ -22,6 +22,7 @@ describe('DouyinPageAdapter', () => {
   it('detects QR login and security verification without bypassing either', async () => {
     await expect(new DouyinPageAdapter(page('https://creator.douyin.com/', ['[data-e2e="qrcode"]'])).detectLoginState()).resolves.toBe('awaiting_scan');
     await expect(new DouyinPageAdapter(page('https://creator.douyin.com/', ['text=安全验证'])).detectLoginState()).resolves.toBe('verification_required');
+    await expect(new DouyinPageAdapter(page('https://creator.douyin.com/creator-micro/home', ['canvas'])).detectLoginState()).resolves.toBe('awaiting_scan');
   });
 
   it('requires a stable official identity instead of a visible nickname', () => {

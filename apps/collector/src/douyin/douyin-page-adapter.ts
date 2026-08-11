@@ -13,7 +13,7 @@ export interface DouyinPageSurface {
 }
 
 const allowedHosts = new Set(['creator.douyin.com', 'creator-micro.douyin.com']);
-const qrSelectors = ['[data-e2e="qrcode"]', '[class*="qrcode"] canvas', '[class*="qrcode"] img', 'img[alt*="二维码"]'];
+const qrSelectors = ['[data-e2e="qrcode"]', '[class*="qrcode"] canvas', '[class*="qrcode"] img', '[class*="qr-code"] canvas', '[class*="qr-code"] img', 'img[alt*="二维码"]', 'canvas'];
 const verificationSelectors = ['text=安全验证', 'text=短信验证', 'text=请输入验证码'];
 const authenticatedSelectors = ['[data-e2e="user-avatar"]', 'text=作品管理', 'text=数据中心'];
 

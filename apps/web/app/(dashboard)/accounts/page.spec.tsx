@@ -14,14 +14,15 @@ vi.mock('../../../lib/api', () => ({
     status: 'ok',
     data: {
       items: [
-        { id: '00000000-0000-4000-8000-000000000001', connectorType: 'self-scrape', platformId: 'real-platform', xhsAccountId: '95874286519', displayName: '南瓜汤与瓜子仁', avatarUrl: null, identityVerifiedAt: '2026-08-07T00:00:00.000Z', capabilities: [] },
-        { id: '00000000-0000-4000-8000-000000000002', connectorType: 'mock', platformId: 'demo-platform', xhsAccountId: null, displayName: '测试账号', avatarUrl: null, identityVerifiedAt: null, capabilities: [] },
+        { id: '00000000-0000-4000-8000-000000000001', platform: 'xiaohongshu', connectorType: 'self-scrape', platformId: 'real-platform', xhsAccountId: '95874286519', displayName: '南瓜汤与瓜子仁', avatarUrl: null, identityVerifiedAt: '2026-08-07T00:00:00.000Z', capabilities: [] },
+        { id: '00000000-0000-4000-8000-000000000002', platform: 'xiaohongshu', connectorType: 'mock', platformId: 'demo-platform', xhsAccountId: null, displayName: '测试账号', avatarUrl: null, identityVerifiedAt: null, capabilities: [] },
       ],
       pageInfo: { hasMore: false, nextCursor: null },
     },
   }),
 }));
 vi.mock('../../../components/self-import-login', () => ({ SelfImportLogin: () => <section aria-label="真实账号登录区" /> }));
+vi.mock('../../../components/douyin-login', () => ({ DouyinLogin: () => <section aria-label="抖音账号登录区" /> }));
 
 afterEach(cleanup);
 
@@ -30,6 +31,7 @@ describe('AccountsPage', () => {
     render(await AccountsPage({ searchParams: Promise.resolve({}) }));
 
     expect(screen.getByText('南瓜汤与瓜子仁')).toBeInTheDocument();
+    expect(screen.getByLabelText('抖音账号登录区')).toBeInTheDocument();
     expect(screen.getAllByText('官方 API 尚未配置').length).toBeGreaterThan(0);
     expect(screen.queryByText('演示授权')).not.toBeInTheDocument();
     expect(screen.queryByText('演示连接器')).not.toBeInTheDocument();

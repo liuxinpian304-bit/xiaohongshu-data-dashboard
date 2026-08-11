@@ -32,4 +32,17 @@ describe('DouyinRegistry', () => {
     const registry = new DouyinRegistry(new DouyinSessionStore(root), () => { throw new Error('factory_should_not_run'); });
     await expect(registry.status('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')).rejects.toThrow('douyin_session_not_found');
   });
+
+  it('starts a restored idle session when its status is requested', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'douyin-registry-')); roots.push(root);
+    const store = new DouyinSessionStore(root); const record = await store.create();
+    let started = 0;
+    const registry = new DouyinRegistry(store, () => ({
+      start: async () => { started += 1; return { state: 'authenticated' as const, changedAt: '2026-08-11T06:00:00.000Z' }; },
+      status: () => ({ state: 'idle' as const, changedAt: '1970-01-01T00:00:00.000Z' }), refresh: async () => ({ state: 'idle' as const, changedAt: '1970-01-01T00:00:00.000Z' }),
+      qr: () => { throw new Error('no qr'); }, close: async () => ({ state: 'closed' as const, changedAt: '2026-08-11T06:00:00.000Z' }),
+    }));
+    await expect(registry.status(record.sessionId)).resolves.toMatchObject({ state: 'authenticated' });
+    expect(started).toBe(1);
+  });
 });

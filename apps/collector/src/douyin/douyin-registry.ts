@@ -41,19 +41,19 @@ export class DouyinRegistry {
   }
 
   async status(sessionId: string) {
-    const manager = await this.manager(sessionId);
-    return this.public(sessionId, manager.status());
+    const { manager, restored } = await this.manager(sessionId);
+    return this.public(sessionId, restored ? await manager.start() : manager.status());
   }
 
   async refresh(sessionId: string) {
-    const manager = await this.manager(sessionId);
+    const { manager } = await this.manager(sessionId);
     return this.public(sessionId, await manager.refresh());
   }
 
-  async qr(sessionId: string) { return (await this.manager(sessionId)).qr(); }
+  async qr(sessionId: string) { return (await this.manager(sessionId)).manager.qr(); }
 
   async close(sessionId: string) {
-    const manager = await this.manager(sessionId);
+    const { manager } = await this.manager(sessionId);
     const result = this.public(sessionId, await manager.close());
     this.managers.delete(sessionId);
     return result;
@@ -62,8 +62,9 @@ export class DouyinRegistry {
   private async manager(sessionId: string) {
     const record = await this.store.open(sessionId);
     let manager = this.managers.get(sessionId);
+    const restored = !manager;
     if (!manager) { manager = this.factory(record); this.managers.set(sessionId, manager); }
-    return manager;
+    return { manager, restored };
   }
 
   private public(sessionId: string, status: Omit<PublicStatus, 'sessionId'>): PublicStatus {

@@ -18,7 +18,7 @@ const verificationSelectors = ['text=安全验证', 'text=短信验证', 'text=�
 const authenticatedSelectors = ['text=创作中心', 'text=作品管理', 'text=数据中心'];
 
 export class DouyinPageAdapter {
-  constructor(private readonly page: DouyinPageSurface) {}
+  constructor(private readonly page: DouyinPageSurface, private readonly identityPayload: () => Promise<unknown> = async () => null) {}
 
   async detectLoginState(): Promise<DouyinLoginState> {
     assertOfficialUrl(this.page.url());
@@ -35,6 +35,13 @@ export class DouyinPageAdapter {
       if (await element.isVisible()) return element.screenshot({ type: 'png' });
     }
     throw new Error('douyin_qr_not_found');
+  }
+
+  async readIdentity(): Promise<DouyinIdentity> {
+    assertOfficialUrl(this.page.url());
+    const identity = parseDouyinIdentity(await this.identityPayload());
+    if (!identity) throw new Error('douyin_identity_unavailable');
+    return identity;
   }
 
   private async anyVisible(selectors: readonly string[]) {

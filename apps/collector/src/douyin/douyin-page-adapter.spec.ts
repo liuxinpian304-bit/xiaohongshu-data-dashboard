@@ -30,4 +30,14 @@ describe('DouyinPageAdapter', () => {
     });
     expect(parseDouyinIdentity({ data: { user: { nickname: 'Tonic' } } })).toBeNull();
   });
+
+  it('reads only a stable identity captured from an official creator response', async () => {
+    const adapter = new DouyinPageAdapter(page('https://creator.douyin.com/creator-micro/home'), async () => ({ data: { user: { uid: '7390000000000000000', unique_id: 'tonic123', nickname: 'Tonic' } } }));
+    await expect(adapter.readIdentity()).resolves.toMatchObject({ platformId: 'douyin:7390000000000000000', douyinAccountId: 'tonic123', displayName: 'Tonic' });
+  });
+
+  it('rejects an authenticated surface without a stable captured identity', async () => {
+    const adapter = new DouyinPageAdapter(page('https://creator.douyin.com/creator-micro/home'), async () => ({ data: { nickname: 'Tonic' } }));
+    await expect(adapter.readIdentity()).rejects.toThrow('douyin_identity_unavailable');
+  });
 });

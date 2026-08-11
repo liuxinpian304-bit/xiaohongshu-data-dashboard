@@ -3,11 +3,13 @@ import { timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { chromium } from 'playwright';
 
 import { CollectionRun, type CollectionProgress, type CollectionStatus } from './collection-run';
 import { LocalXhsSessionManager, type QrSnapshot, type SessionStatus } from './session-manager';
 import { discoverAccounts, type DiscoveredPlatformAccount } from './xiaohuohua/account-discovery';
 import { XiaohuohuaClient } from './xiaohuohua/client';
+import { createRuntimeDouyinRegistry } from './douyin/douyin-runtime';
 
 interface CollectorConfiguration { enabled: boolean; host: string; token: string }
 interface SessionManagerLike {
@@ -120,7 +122,9 @@ async function main() {
     const session = await xiaohuohua.connect();
     try { return await discoverAccounts(session); } finally { await session.close?.(); }
   };
-  const server = createCollectorServer({ token: configuration.token, manager, collection, accounts });
+  const douyinRoot = process.env.LOCAL_DOUYIN_PROFILE_ROOT ?? join(homedir(), 'Library', 'Application Support', 'xiaohongshu-dashboard', 'douyin-profiles');
+  const douyin = createRuntimeDouyinRegistry(douyinRoot, (directory, options) => chromium.launchPersistentContext(directory, options));
+  const server = createCollectorServer({ token: configuration.token, manager, collection, accounts, douyin });
   const close = async () => { await manager.close(); server.close(); };
   process.once('SIGINT', () => { void close(); });
   process.once('SIGTERM', () => { void close(); });

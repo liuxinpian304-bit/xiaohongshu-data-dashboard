@@ -135,7 +135,7 @@ async function main() {
   const douyinRoot = process.env.LOCAL_DOUYIN_PROFILE_ROOT ?? join(homedir(), 'Library', 'Application Support', 'xiaohongshu-dashboard', 'douyin-profiles');
   const douyin = createRuntimeDouyinRegistry(douyinRoot, (directory, options) => chromium.launchPersistentContext(directory, options));
   const server = createCollectorServer({ token: configuration.token, manager, collection, accounts, douyin });
-  const close = async () => { await manager.close(); server.close(); };
+  const close = async () => { await Promise.all([manager.close(), douyin.closeAll()]); server.close(); };
   process.once('SIGINT', () => { void close(); });
   process.once('SIGTERM', () => { void close(); });
   server.listen(Number(process.env.LOCAL_XHS_COLLECTOR_PORT ?? 43127), configuration.host);

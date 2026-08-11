@@ -67,6 +67,11 @@ export class DouyinRegistry {
     return result;
   }
 
+  async closeAll() {
+    await Promise.all([...this.managers.values()].map((manager) => manager.close().catch(() => undefined)));
+    this.managers.clear();
+  }
+
   private async manager(sessionId: string) {
     const record = await this.store.open(sessionId);
     let manager = this.managers.get(sessionId);

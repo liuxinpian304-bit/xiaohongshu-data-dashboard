@@ -1,15 +1,18 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { prisma, type DatabaseClient } from '@xhs/database';
+import { importPlatformCollection, prisma, type DatabaseClient, type PlatformImportSummary } from '@xhs/database';
 
 export type DouyinSessionState = 'idle' | 'launching' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'error' | 'closed';
 export interface DouyinIdentity { platformId: string; douyinAccountId: string; displayName: string; avatarUrl: string | null }
 export interface DouyinSessionStatus { sessionId: string; state: DouyinSessionState; changedAt: string; identity?: DouyinIdentity; identityVerifiedAt?: string; qrExpiresAt?: string }
+export interface DouyinCollectionStatus { runId: string | null; state: 'idle' | 'running' | 'completed' | 'failed'; stage: 'account' | 'notes' | 'metrics' | 'comments' | 'replies' | 'writing' | 'reports' | 'complete'; processed: number; total: number; incompleteNotes: number; changedAt: string; errorCode?: 'collector_collection_failed' }
 
-interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; db?: DatabaseClient }
+interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; db?: DatabaseClient; importer?: (events: Iterable<unknown>, options: { db: DatabaseClient; platform: 'douyin'; source: 'self-scrape'; accountPlatformId: string; runId: string }) => Promise<PlatformImportSummary | Omit<PlatformImportSummary, 'platform' | 'source'>>; sleep?: (milliseconds: number) => Promise<void> }
 
 @Injectable()
 export class DouyinLocalService {
   private readonly configuration: Configuration;
+  private readonly imports = new Map<string, 'running' | 'completed' | 'failed'>();
+  private readonly runIdentities = new Map<string, string>();
 
   constructor(configuration?: Configuration) {
     this.configuration = configuration ?? {
@@ -35,6 +38,27 @@ export class DouyinLocalService {
   async refresh(sessionId: string) { return this.requestStatus(`/v3/douyin/sessions/${validSessionId(sessionId)}/refresh`, 'POST'); }
   async close(sessionId: string) { return this.requestStatus(`/v3/douyin/sessions/${validSessionId(sessionId)}`, 'DELETE'); }
 
+  async startCollection(sessionId: string) {
+    const id = validSessionId(sessionId);
+    const session = await this.requestStatus(`/v3/douyin/sessions/${id}`, 'GET');
+    if (session.state !== 'authenticated' || !session.identity) throw new ServiceUnavailableException('douyin_identity_unavailable');
+    const status = validateCollectionStatus(await this.request(`/v3/douyin/sessions/${id}/collection/start`, 'POST'));
+    if (status.runId && this.imports.get(status.runId) !== 'running') {
+      this.imports.set(status.runId, 'running'); this.runIdentities.set(status.runId, session.identity.platformId);
+      void this.importRun(id, status.runId);
+    }
+    return status;
+  }
+
+  async collectionStatus(sessionId: string) {
+    const status = validateCollectionStatus(await this.request(`/v3/douyin/sessions/${validSessionId(sessionId)}/collection/status`, 'GET'));
+    if (!status.runId) return status;
+    const imported = this.imports.get(status.runId);
+    if (imported === 'failed') return { ...status, state: 'failed' as const, errorCode: 'collector_collection_failed' as const };
+    if (status.state === 'completed' && imported === 'running') return { ...status, state: 'running' as const, stage: 'writing' as const };
+    return status;
+  }
+
   async qr(sessionId: string) {
     const response = await this.fetch(`/v3/douyin/sessions/${validSessionId(sessionId)}/qr`, 'GET');
     if (response.headers.get('content-type') !== 'image/png') throw new ServiceUnavailableException('invalid_douyin_qr');
@@ -49,6 +73,28 @@ export class DouyinLocalService {
     const status = validateStatus(await this.request(path, method));
     await this.bindIfVerified(status);
     return status;
+  }
+
+  private async importRun(sessionId: string, runId: string) {
+    try {
+      let status: DouyinCollectionStatus | null = null;
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        status = validateCollectionStatus(await this.request(`/v3/douyin/sessions/${sessionId}/collection/status`, 'GET'));
+        if (status.runId !== runId || status.state === 'failed') throw new Error('douyin_collection_failed');
+        if (status.state === 'completed') break;
+        await (this.configuration.sleep ?? delay)(500);
+      }
+      if (status?.state !== 'completed') throw new Error('douyin_collection_timeout');
+      const body = await this.request(`/v3/douyin/sessions/${sessionId}/collection/events?runId=${encodeURIComponent(runId)}`, 'GET');
+      if (!body || typeof body !== 'object' || Array.isArray(body)) this.invalid();
+      const envelope = body as Record<string, unknown>;
+      if (envelope.runId !== runId || !Array.isArray(envelope.events) || envelope.events.length > 1_000_000) this.invalid();
+      const accountPlatformId = this.runIdentities.get(runId); if (!accountPlatformId) throw new Error('douyin_identity_unavailable');
+      const importer = this.configuration.importer ?? importPlatformCollection;
+      await importer(envelope.events, { db: this.configuration.db ?? prisma, platform: 'douyin', source: 'self-scrape', accountPlatformId, runId });
+      this.imports.set(runId, 'completed');
+    } catch { this.imports.set(runId, 'failed'); }
+    finally { this.runIdentities.delete(runId); }
   }
 
   private async bindIfVerified(status: DouyinSessionStatus) {
@@ -104,8 +150,20 @@ function validateIdentity(value: unknown): DouyinIdentity {
   return { platformId: String(body.platformId), douyinAccountId: String(body.douyinAccountId), displayName: String(body.displayName), avatarUrl: body.avatarUrl === null ? null : String(body.avatarUrl) };
 }
 
+function validateCollectionStatus(value: unknown): DouyinCollectionStatus {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid();
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => !['runId', 'state', 'stage', 'processed', 'total', 'incompleteNotes', 'changedAt', 'errorCode'].includes(key))) invalid();
+  if (body.runId !== null && (typeof body.runId !== 'string' || body.runId.length < 1 || body.runId.length > 200)) invalid();
+  if (!['idle', 'running', 'completed', 'failed'].includes(String(body.state)) || !['account', 'notes', 'metrics', 'comments', 'replies', 'writing', 'reports', 'complete'].includes(String(body.stage))) invalid();
+  if (![body.processed, body.total, body.incompleteNotes].every((item) => Number.isSafeInteger(item) && Number(item) >= 0) || !date(body.changedAt)) invalid();
+  if (body.errorCode !== undefined && body.errorCode !== 'collector_collection_failed') invalid();
+  return body as unknown as DouyinCollectionStatus;
+}
+
 function validSessionId(value: unknown) { if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) invalid(); return value; }
 function text(value: unknown) { return typeof value === 'string' && value.trim().length > 0 && value.length <= 200; }
 function date(value: unknown) { return typeof value === 'string' && Number.isFinite(Date.parse(value)); }
 function https(value: unknown) { if (typeof value !== 'string' || value.length > 2048) return false; try { return new URL(value).protocol === 'https:'; } catch { return false; } }
 function invalid(): never { throw new ServiceUnavailableException('invalid_douyin_collector_response'); }
+function delay(milliseconds: number) { return new Promise<void>((resolve) => setTimeout(resolve, milliseconds)); }

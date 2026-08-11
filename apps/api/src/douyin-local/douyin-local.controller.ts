@@ -12,6 +12,8 @@ export class DouyinLocalController {
   @Post() create() { return this.service.create(); }
   @Get(':sessionId') status(@Param('sessionId') sessionId: string) { return this.service.status(sessionId); }
   @Post(':sessionId/refresh') refresh(@Param('sessionId') sessionId: string) { return this.service.refresh(sessionId); }
+  @Post(':sessionId/collection/start') startCollection(@Param('sessionId') sessionId: string) { return this.service.startCollection(sessionId); }
+  @Get(':sessionId/collection/status') collectionStatus(@Param('sessionId') sessionId: string) { return this.service.collectionStatus(sessionId); }
   @Delete(':sessionId') close(@Param('sessionId') sessionId: string) { return this.service.close(sessionId); }
   @Get(':sessionId/qr') async qr(@Param('sessionId') sessionId: string, @Res() response: Response) {
     const qr = await this.service.qr(sessionId);

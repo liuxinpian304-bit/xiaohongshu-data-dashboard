@@ -12,6 +12,7 @@ export function DouyinLogin({ initialSessions, pollMilliseconds = 2_000 }: { ini
   const [sessions, setSessions] = useState(initialSessions);
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
+  const [syncingSessionId, setSyncingSessionId] = useState<string | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -64,6 +65,26 @@ export function DouyinLogin({ initialSessions, pollMilliseconds = 2_000 }: { ini
     setSessions((current) => current.filter((session) => session.sessionId !== sessionId));
   }
 
+  async function sync(sessionId: string) {
+    if (syncingSessionId) return;
+    setSyncingSessionId(sessionId); setMessage('正在读取抖音作品和数据…');
+    try {
+      const started = await fetch(`/api/control/douyin/sessions/${sessionId}/collection/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      if (!started.ok) throw new Error();
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, pollMilliseconds));
+        const response = await fetch(`/api/control/douyin/sessions/${sessionId}/collection/status`, { cache: 'no-store' });
+        if (!response.ok) throw new Error();
+        const status = await response.json() as { state: string; stage: string; processed: number; total: number };
+        if (status.state === 'failed') throw new Error();
+        if (status.state === 'completed') { setMessage(`同步完成，已处理 ${status.processed} 条抖音作品。`); return; }
+        setMessage(status.stage === 'writing' ? '作品已读取，正在写入驾驶舱…' : `正在同步抖音数据（${status.processed}/${status.total || '…'}）`);
+      }
+      throw new Error();
+    } catch { setMessage('抖音同步失败，请保持官方创作中心登录后重试。'); }
+    finally { setSyncingSessionId(null); }
+  }
+
   return <section className="xhs-account-login douyin-login" aria-labelledby="douyin-login-title">
     <div className="xhs-login-heading"><div><h2 id="douyin-login-title">抖音账号登录</h2><p>使用抖音 App 扫描官方创作中心二维码，每个账号使用独立会话保存登录状态。</p></div><button className="primary-button" type="button" disabled={pending} onClick={() => void createSession()}>{pending ? '正在打开…' : '登录新的抖音账号'}</button></div>
     {message ? <p className="xhs-login-message" role="alert">{message}</p> : null}
@@ -72,7 +93,7 @@ export function DouyinLogin({ initialSessions, pollMilliseconds = 2_000 }: { ini
       <div className="douyin-session-body"><strong>{session.identity?.displayName ?? labels[session.state]}</strong>{session.identity ? <span>抖音号：{session.identity.douyinAccountId}</span> : <span>{labels[session.state]}</span>}{session.identityVerifiedAt ? <small>身份核验：{new Date(session.identityVerifiedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</small> : null}</div>
       {session.state === 'awaiting_scan' ? <div className="douyin-qr"><img src={`/api/control/douyin/sessions/${session.sessionId}/qr?v=${encodeURIComponent(session.changedAt)}`} alt="抖音登录二维码" width="220" height="220" /><span>请使用抖音 App 扫码</span></div> : null}
       {session.state === 'verification_required' ? <p className="xhs-verification" role="alert">抖音要求安全验证，请在本机打开的官方窗口中亲自完成。</p> : null}
-      <div className="account-actions">{session.state === 'authenticated' && session.identity ? <button className="primary-button" type="button" aria-label={`同步 ${session.identity.displayName}`}>立即同步</button> : <button className="secondary-button" type="button" onClick={() => void refresh(session.sessionId)}>刷新状态</button>}<button className="secondary-button" type="button" onClick={() => void close(session.sessionId)}>关闭会话</button></div>
+      <div className="account-actions">{session.state === 'authenticated' && session.identity ? <button className="primary-button" type="button" disabled={syncingSessionId !== null} aria-label={`同步 ${session.identity.displayName}`} onClick={() => void sync(session.sessionId)}>{syncingSessionId === session.sessionId ? '同步中…' : '立即同步'}</button> : <button className="secondary-button" type="button" onClick={() => void refresh(session.sessionId)}>刷新状态</button>}<button className="secondary-button" type="button" disabled={syncingSessionId === session.sessionId} onClick={() => void close(session.sessionId)}>关闭会话</button></div>
     </article>)}</div>
   </section>;
 }

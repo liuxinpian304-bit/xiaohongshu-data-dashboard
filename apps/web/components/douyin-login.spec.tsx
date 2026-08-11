@@ -33,4 +33,20 @@ describe('DouyinLogin', () => {
     expect(screen.queryByText('已通过小火花连接')).not.toBeInTheDocument();
     expect(statusCalls).toBeGreaterThan(0);
   });
+
+  it('starts a real account-scoped sync and reports completion', async () => {
+    const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const session = { sessionId, state: 'authenticated' as const, changedAt: '2026-08-11T06:00:03.000Z', identityVerifiedAt: '2026-08-11T06:00:03.000Z', identity: { platformId: 'douyin:7390000000000000000', douyinAccountId: 'YPSJ0725', displayName: 'P', avatarUrl: null } };
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/sessions') && init?.method !== 'POST') return Response.json({ items: [session] });
+      if (url.endsWith('/collection/start')) return Response.json({ runId: 'run-1', state: 'running', stage: 'account', processed: 0, total: 0 });
+      if (url.endsWith('/collection/status')) return Response.json({ runId: 'run-1', state: 'completed', stage: 'complete', processed: 3, total: 3 });
+      throw new Error(`unexpected request ${url}`);
+    }));
+
+    render(<DouyinLogin initialSessions={[session]} pollMilliseconds={1} />);
+    fireEvent.click(screen.getByRole('button', { name: '同步 P' }));
+    expect(await screen.findByText('同步完成，已处理 3 条抖音作品。')).toBeVisible();
+  });
 });

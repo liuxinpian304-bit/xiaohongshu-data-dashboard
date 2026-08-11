@@ -150,6 +150,9 @@ run_service() {
       ;;
     collector)
       export LOCAL_XHS_COLLECTOR_ENABLED=true LOCAL_XHS_COLLECTOR_HOST=127.0.0.1 LOCAL_XHS_COLLECTOR_PORT=43127
+      export LOCAL_DOUYIN_PROFILE_ROOT="$SERVICE_HOME/douyin-profiles"
+      mkdir -p "$LOCAL_DOUYIN_PROFILE_ROOT"
+      chmod 700 "$LOCAL_DOUYIN_PROFILE_ROOT"
       cd "$REPO_ROOT/apps/collector"
       exec "$node" "$REPO_ROOT/apps/collector/node_modules/tsx/dist/cli.mjs" watch src/server.ts
       ;;

@@ -70,7 +70,7 @@ cat > "$stub_dir/ipconfig" <<'EOF'
 EOF
 cat > "$stub_dir/node" <<'EOF'
 #!/bin/zsh
-print -- "APP_ORIGINS=${APP_ORIGINS:-} COLLECTOR_HOST=${LOCAL_XHS_COLLECTOR_HOST:-} ARGS=$*"
+print -- "APP_ORIGINS=${APP_ORIGINS:-} COLLECTOR_HOST=${LOCAL_XHS_COLLECTOR_HOST:-} DOUYIN_ROOT=${LOCAL_DOUYIN_PROFILE_ROOT:-} ARGS=$*"
 EOF
 chmod +x "$stub_dir/docker" "$stub_dir/curl" "$stub_dir/launchctl"
 chmod +x "$stub_dir/ipconfig" "$stub_dir/node"
@@ -89,6 +89,9 @@ web_run=$(PATH="$stub_dir:$PATH" $XHS_SERVICE_HOME/bin/xhs-launch web)
 [[ $web_run == *"--hostname 0.0.0.0"* ]] || fail "web must listen on LAN"
 collector_run=$(PATH="$stub_dir:$PATH" $XHS_SERVICE_HOME/bin/xhs-launch collector)
 [[ $collector_run == *"COLLECTOR_HOST=127.0.0.1"* ]] || fail "collector must remain loopback-only"
+[[ $collector_run == *"DOUYIN_ROOT=$XHS_SERVICE_HOME/douyin-profiles"* ]] || fail "collector must use the secure Douyin profile root"
+[[ -d $XHS_SERVICE_HOME/douyin-profiles ]] || fail "Douyin profile root missing"
+[[ $(stat -f '%Lp' $XHS_SERVICE_HOME/douyin-profiles) == 700 ]] || fail "Douyin profile root must use mode 700"
 
 print -- "PASS: service health contract"
 

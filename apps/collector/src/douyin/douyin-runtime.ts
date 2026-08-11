@@ -4,6 +4,7 @@ import { DouyinPageAdapter, assertOfficialUrl, parseDouyinIdentity, type DouyinP
 import { DouyinRegistry } from './douyin-registry';
 import { DouyinSessionManager } from './douyin-session-manager';
 import { DouyinSessionStore } from './douyin-session-store';
+import { collectDouyinEvents } from './douyin-collection';
 
 type LaunchPersistentContext = (profileDirectory: string, options: { headless: false; channel: 'chrome' }) => Promise<BrowserContext>;
 
@@ -12,6 +13,7 @@ export function createRuntimeDouyinRegistry(root: string, launchPersistentContex
   return new DouyinRegistry(store, (record) => {
     let page: Page | null = null;
     let identityPayload: unknown = null;
+    let collectionPayloads: unknown[] | null = null;
     const surface: DouyinPageSurface = {
       url: () => page?.url() ?? 'https://creator.douyin.com/',
       locator: (selector) => {
@@ -26,22 +28,41 @@ export function createRuntimeDouyinRegistry(root: string, launchPersistentContex
       launch: async (profileDirectory) => {
         const context = await launchPersistentContext(profileDirectory, { headless: false, channel: 'chrome' });
         page = context.pages()[0] ?? await context.newPage();
-        page.on('response', async (response) => { const payload = await safeIdentityPayload(response); if (payload) identityPayload = payload; });
+        page.on('response', async (response) => {
+          const payload = await safeOfficialPayload(response, collectionPayloads ? 5 * 1024 * 1024 : 1024 * 1024);
+          if (!payload) return;
+          if (parseDouyinIdentity(payload)) identityPayload = payload;
+          if (collectionPayloads && collectionPayloads.length < 1_000) collectionPayloads.push(payload);
+        });
         await page.goto('https://creator.douyin.com/creator-micro/home', { waitUntil: 'domcontentloaded', timeout: 30_000 });
         return { close: async () => { page = null; identityPayload = null; await context.close(); } };
+      },
+      collect: async (identity, progress, emit, runId) => {
+        if (!page) throw new Error('douyin_page_unavailable');
+        collectionPayloads = [];
+        progress({ stage: 'notes', processed: 0, total: 0, incompleteNotes: 0 });
+        try {
+          await page.goto('https://creator.douyin.com/creator-micro/content/manage', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+          await page.waitForTimeout(5_000);
+          await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+          await page.waitForTimeout(2_000);
+          const events = collectDouyinEvents(identity, collectionPayloads, runId, new Date().toISOString());
+          const total = events.filter((event) => event.type === 'content').length;
+          for (const event of events) emit(event);
+          progress({ stage: 'reports', processed: total, total, incompleteNotes: 0 });
+        } finally { collectionPayloads = null; }
       },
     });
   });
 }
 
-async function safeIdentityPayload(response: Pick<Response, 'url' | 'headers' | 'json'>) {
+async function safeOfficialPayload(response: Pick<Response, 'url' | 'headers' | 'json'>, maxBytes: number) {
   try {
     assertOfficialUrl(response.url());
     const headers = response.headers();
     if (!String(headers['content-type'] ?? '').toLowerCase().includes('application/json')) return null;
     const length = Number(headers['content-length'] ?? 0);
-    if (length > 1024 * 1024) return null;
-    const payload = await response.json();
-    return parseDouyinIdentity(payload) ? payload : null;
+    if (length > maxBytes) return null;
+    return await response.json();
   } catch { return null; }
 }

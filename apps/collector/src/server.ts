@@ -20,7 +20,7 @@ interface SessionManagerLike {
   close(): Promise<SessionStatus>;
 }
 interface CollectionRunLike { start(): CollectionStatus; status(): CollectionStatus; events?(runId: string): unknown[] }
-interface DouyinRegistryLike { createSession(): Promise<unknown>; listSessions(): Promise<unknown[]>; status(id:string):Promise<unknown>; refresh(id:string):Promise<unknown>; qr(id:string):Promise<{bytes:Buffer;contentType:'image/png';expiresAt:string}>; close(id:string):Promise<unknown> }
+interface DouyinRegistryLike { createSession(): Promise<unknown>; listSessions(): Promise<unknown[]>; status(id:string):Promise<unknown>; refresh(id:string):Promise<unknown>; qr(id:string):Promise<{bytes:Buffer;contentType:'image/png';expiresAt:string}>; close(id:string):Promise<unknown>; startCollection?(id:string):Promise<unknown>; collectionStatus?(id:string):Promise<unknown>; collectionEvents?(id:string,runId:string):Promise<unknown[]> }
 
 export function validateCollectorConfiguration(configuration: CollectorConfiguration) {
   if (!configuration.enabled) throw new Error('collector_disabled');
@@ -52,6 +52,16 @@ export function createCollectorServer(options: { token: string; manager: Session
         if (request.method === 'GET' && action === '/qr') return sendDouyinQr(response, await options.douyin.qr(id));
         if (request.method === 'POST' && action === '/refresh') return send(response, 200, await options.douyin.refresh(id));
         if (request.method === 'DELETE' && action === '') return send(response, 200, await options.douyin.close(id));
+      }
+      const douyinCollectionRoute = /^\/v3\/douyin\/sessions\/([0-9a-f-]{36})\/collection\/(start|status|events)$/.exec(parsedUrl.pathname);
+      if (douyinCollectionRoute && options.douyin) {
+        const id = douyinCollectionRoute[1]!; const action = douyinCollectionRoute[2]!;
+        if (request.method === 'POST' && action === 'start' && options.douyin.startCollection) return send(response, 202, await options.douyin.startCollection(id));
+        if (request.method === 'GET' && action === 'status' && options.douyin.collectionStatus) return send(response, 200, await options.douyin.collectionStatus(id));
+        if (request.method === 'GET' && action === 'events' && options.douyin.collectionEvents) {
+          const runId = parsedUrl.searchParams.get('runId'); if (!runId || runId.length > 200) return send(response, 400, { error: 'invalid_request' });
+          return send(response, 200, { runId, events: await options.douyin.collectionEvents(id, runId) });
+        }
       }
       if (route === 'GET /v1/session/status') return send(response, 200, options.manager.status());
       if (route === 'GET /v2/accounts') return send(response, 200, { items: [] });

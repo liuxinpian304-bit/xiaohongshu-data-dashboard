@@ -30,4 +30,22 @@ describe('DouyinSessionManager', () => {
     await expect(manager.start()).resolves.toMatchObject({ state: 'verification_required' });
     expect(bindIdentity).not.toHaveBeenCalled();
   });
+
+  it('reverifies the bound identity before starting an account-scoped collection', async () => {
+    const collect = vi.fn(async (_identity, progress, emit, runId) => {
+      progress({ stage: 'notes', processed: 1, total: 1, incompleteNotes: 0 });
+      emit({ runId, type: 'completed' });
+    });
+    const manager = new DouyinSessionManager(record, {
+      store: { bindIdentity: vi.fn() } as never,
+      adapter: { detectLoginState: async () => 'authenticated', readIdentity: async () => identity, captureQr: async () => Buffer.alloc(0) },
+      launch: async () => ({ close: async () => undefined }), collect,
+    });
+    await manager.start();
+    const started = manager.startCollection();
+    expect(started).toMatchObject({ state: 'running', stage: 'account', runId: expect.any(String) });
+    await vi.waitFor(() => expect(manager.collectionStatus().state).toBe('completed'));
+    expect(collect).toHaveBeenCalledWith(identity, expect.any(Function), expect.any(Function), started.runId);
+    expect(manager.collectionEvents(started.runId!)).toEqual([{ runId: started.runId, type: 'completed' }]);
+  });
 });

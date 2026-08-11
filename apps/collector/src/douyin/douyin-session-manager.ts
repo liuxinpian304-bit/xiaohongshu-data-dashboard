@@ -1,6 +1,7 @@
 import type { DouyinIdentity, DouyinSessionRecord } from './douyin-types';
 import type { DouyinSessionStore } from './douyin-session-store';
 import type { DouyinLoginState } from './douyin-page-adapter';
+import { CollectionRun, type CollectionProgress } from '../collection-run';
 
 export type DouyinSessionState = 'idle' | 'launching' | 'awaiting_scan' | 'authenticated' | 'verification_required' | 'expired' | 'error' | 'closed';
 export interface DouyinSessionStatus {
@@ -24,13 +25,24 @@ export class DouyinSessionManager {
   private current: DouyinSessionStatus;
   private handle: Handle | null = null;
   private qrBytes: Buffer | null = null;
+  private readonly collection: CollectionRun<unknown>;
 
   constructor(private readonly record: DouyinSessionRecord, private readonly options: {
     store: Pick<DouyinSessionStore, 'bindIdentity'>;
     adapter: Adapter;
     launch: (profileDirectory: string) => Promise<Handle>;
+    collect?: (identity: DouyinIdentity, progress: (value: CollectionProgress) => void, emit: (event: unknown) => void, runId: string) => Promise<void>;
   }) {
     this.current = { sessionId: record.sessionId, state: 'idle', changedAt: new Date().toISOString() };
+    this.collection = new CollectionRun({ collect: async (progress, emit, runId) => {
+      if (!options.collect) throw new Error('collector_events_unavailable');
+      const state = await options.adapter.detectLoginState();
+      if (state !== 'authenticated') throw new Error(state === 'verification_required' ? 'douyin_verification_required' : 'douyin_identity_unavailable');
+      const identity = await options.adapter.readIdentity();
+      const boundId = this.current.identity?.platformId ?? this.record.platformId;
+      if (!boundId || identity.platformId !== boundId) throw new Error('douyin_identity_mismatch');
+      await options.collect(identity, progress, emit, runId);
+    } });
   }
 
   status() { return { ...this.current }; }
@@ -70,6 +82,10 @@ export class DouyinSessionManager {
     if (!this.qrBytes || this.current.state !== 'awaiting_scan' || !this.current.qrExpiresAt || Date.now() >= Date.parse(this.current.qrExpiresAt)) throw new Error('douyin_qr_expired');
     return { bytes: Buffer.from(this.qrBytes), contentType: 'image/png' as const, expiresAt: this.current.qrExpiresAt };
   }
+
+  startCollection() { return this.collection.start(); }
+  collectionStatus() { return this.collection.status(); }
+  collectionEvents(runId: string) { return this.collection.events(runId); }
 
   async close() {
     await this.handle?.close();

@@ -17,6 +17,9 @@ interface ManagerLike {
   refresh(): Promise<Omit<PublicStatus, 'sessionId'>>;
   qr(): { bytes: Buffer; contentType: 'image/png'; expiresAt: string };
   close(): Promise<Omit<PublicStatus, 'sessionId'>>;
+  startCollection?(): unknown;
+  collectionStatus?(): unknown;
+  collectionEvents?(runId: string): unknown[];
 }
 
 export class DouyinRegistry {
@@ -51,6 +54,10 @@ export class DouyinRegistry {
   }
 
   async qr(sessionId: string) { return (await this.manager(sessionId)).manager.qr(); }
+
+  async startCollection(sessionId: string) { const manager = (await this.manager(sessionId)).manager; if (!manager.startCollection) throw new Error('collector_events_unavailable'); return manager.startCollection(); }
+  async collectionStatus(sessionId: string) { const manager = (await this.manager(sessionId)).manager; if (!manager.collectionStatus) throw new Error('collector_events_unavailable'); return manager.collectionStatus(); }
+  async collectionEvents(sessionId: string, runId: string) { const manager = (await this.manager(sessionId)).manager; if (!manager.collectionEvents) throw new Error('collector_events_unavailable'); return manager.collectionEvents(runId); }
 
   async close(sessionId: string) {
     const { manager } = await this.manager(sessionId);

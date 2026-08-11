@@ -15,7 +15,7 @@ export interface DouyinPageSurface {
 const allowedHosts = new Set(['creator.douyin.com', 'creator-micro.douyin.com']);
 const qrSelectors = ['[data-e2e="qrcode"]', '[class*="qrcode"] canvas', '[class*="qrcode"] img', 'img[alt*="二维码"]'];
 const verificationSelectors = ['text=安全验证', 'text=短信验证', 'text=请输入验证码'];
-const authenticatedSelectors = ['text=创作中心', 'text=作品管理', 'text=数据中心'];
+const authenticatedSelectors = ['[data-e2e="user-avatar"]', 'text=作品管理', 'text=数据中心'];
 
 export class DouyinPageAdapter {
   constructor(private readonly page: DouyinPageSurface, private readonly identityPayload: () => Promise<unknown> = async () => null) {}

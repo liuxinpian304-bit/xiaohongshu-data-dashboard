@@ -14,7 +14,7 @@ describe('runtime Douyin registry', () => {
     let responseHandler: ((response: any) => Promise<void>) | undefined;
     const page = {
       url: () => 'https://creator.douyin.com/creator-micro/home',
-      locator: (selector: string) => ({ first: () => ({ isVisible: async () => selector === 'text=创作中心', screenshot: async () => Buffer.alloc(0) }) }),
+      locator: (selector: string) => ({ first: () => ({ isVisible: async () => selector === '[data-e2e="user-avatar"]', screenshot: async () => Buffer.alloc(0) }) }),
       on: (_event: string, handler: (response: any) => Promise<void>) => { responseHandler = handler; },
       goto: vi.fn(async () => { await responseHandler?.({ url: () => 'https://creator.douyin.com/web/api/media/user/info', headers: () => ({ 'content-type': 'application/json', 'content-length': '128' }), json: async () => ({ data: { uid: '7390000000000000000', unique_id: 'tonic123', nickname: 'Tonic' } }) }); }),
     };
@@ -22,6 +22,6 @@ describe('runtime Douyin registry', () => {
     const registry = createRuntimeDouyinRegistry(root, async () => ({ pages: () => [page], newPage: async () => page, close } as any));
 
     await expect(registry.createSession()).resolves.toMatchObject({ state: 'authenticated', identity: { platformId: 'douyin:7390000000000000000', displayName: 'Tonic' } });
-    expect(page.goto).toHaveBeenCalledWith('https://creator.douyin.com/', expect.objectContaining({ waitUntil: 'domcontentloaded' }));
+    expect(page.goto).toHaveBeenCalledWith('https://creator.douyin.com/creator-micro/home', expect.objectContaining({ waitUntil: 'domcontentloaded' }));
   });
 });

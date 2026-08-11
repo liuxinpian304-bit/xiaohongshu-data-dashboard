@@ -27,7 +27,7 @@ export function createRuntimeDouyinRegistry(root: string, launchPersistentContex
         const context = await launchPersistentContext(profileDirectory, { headless: false, channel: 'chrome' });
         page = context.pages()[0] ?? await context.newPage();
         page.on('response', async (response) => { const payload = await safeIdentityPayload(response); if (payload) identityPayload = payload; });
-        await page.goto('https://creator.douyin.com/', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        await page.goto('https://creator.douyin.com/creator-micro/home', { waitUntil: 'domcontentloaded', timeout: 30_000 });
         return { close: async () => { page = null; identityPayload = null; await context.close(); } };
       },
     });

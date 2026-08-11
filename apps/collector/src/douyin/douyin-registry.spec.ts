@@ -45,4 +45,18 @@ describe('DouyinRegistry', () => {
     await expect(registry.status(record.sessionId)).resolves.toMatchObject({ state: 'authenticated' });
     expect(started).toBe(1);
   });
+
+  it('refreshes a running session when status is polled', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'douyin-registry-')); roots.push(root);
+    let refreshes = 0;
+    const registry = new DouyinRegistry(new DouyinSessionStore(root), () => ({
+      start: async () => ({ state: 'launching' as const, changedAt: '2026-08-11T06:00:00.000Z' }),
+      status: () => ({ state: 'launching' as const, changedAt: '2026-08-11T06:00:00.000Z' }),
+      refresh: async () => { refreshes += 1; return { state: 'awaiting_scan' as const, changedAt: '2026-08-11T06:00:01.000Z' }; },
+      qr: () => ({ bytes: Buffer.from('png'), contentType: 'image/png' as const, expiresAt: '2026-08-11T06:02:00.000Z' }), close: async () => ({ state: 'closed' as const, changedAt: '2026-08-11T06:03:00.000Z' }),
+    }));
+    const created = await registry.createSession();
+    await expect(registry.status(created.sessionId)).resolves.toMatchObject({ state: 'awaiting_scan' });
+    expect(refreshes).toBe(1);
+  });
 });

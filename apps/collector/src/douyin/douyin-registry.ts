@@ -42,7 +42,7 @@ export class DouyinRegistry {
 
   async status(sessionId: string) {
     const { manager, restored } = await this.manager(sessionId);
-    return this.public(sessionId, restored ? await manager.start() : manager.status());
+    return this.public(sessionId, restored ? await manager.start() : await manager.refresh());
   }
 
   async refresh(sessionId: string) {

@@ -7,9 +7,9 @@ import type { Note } from '../lib/api';
 import { NoteExplorer } from './note-explorer';
 
 const notes: Note[] = [{
-  id: 'note-1', accountId: 'account-1', connectorType: 'self-scrape', platformId: 'platform-note-1',
+  id: 'note-1', accountId: 'account-1', platform: 'xiaohongshu', connectorType: 'self-scrape', platformId: 'platform-note-1',
   title: '一眼看懂的数据笔记', publishedAt: '2026-08-06T09:00:00.000Z', lastSeenAt: '2026-08-06T10:00:00.000Z',
-  account: { id: 'account-1', displayName: '测试账号', platformId: 'xhs-1' },
+  account: { id: 'account-1', platform: 'xiaohongshu', displayName: '测试账号', platformId: 'xhs-1' },
   metrics: [
     { key: 'views', displayName: '阅读', value: '1280', availability: 'available', source: 'self-scrape', observedAt: '2026-08-06T10:00:00.000Z' },
     { key: 'likes', displayName: '点赞', value: '86', availability: 'available', source: 'self-scrape', observedAt: '2026-08-06T10:00:00.000Z' },

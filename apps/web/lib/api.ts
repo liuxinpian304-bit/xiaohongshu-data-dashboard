@@ -20,7 +20,7 @@ export type Account = { id: string; platform: 'xiaohongshu' | 'douyin'; source: 
 export type SyncJob = { id: string; accountId: string; status: 'pending' | 'running' | 'succeeded' | 'failed'; currentStage: string; error: string | null; createdAt: string; startedAt: string | null; completedAt: string | null };
 export type NoteMetric = { key: string; displayName: string; availability: DataAvailabilityState; value: string | null; source: string; observedAt: string };
 export type CommentSyncCompleteness = { status: string; error: string | null; updatedAt: string } | null;
-export type Note = { id: string; accountId: string; connectorType: string; platformId: string; title: string; publishedAt: string; lastSeenAt: string; account: { id: string; displayName: string | null; platformId: string }; metrics: NoteMetric[]; commentCompleteness: CommentSyncCompleteness };
+export type Note = { id: string; accountId: string; platform: 'xiaohongshu' | 'douyin'; connectorType: string; platformId: string; title: string; publishedAt: string; lastSeenAt: string; account: { id: string; platform: 'xiaohongshu' | 'douyin'; displayName: string | null; platformId: string }; metrics: NoteMetric[]; commentCompleteness: CommentSyncCompleteness };
 export type NoteDetail = Note;
 export type Comment = { id: string; noteId: string | null; connectorType: string; platformId: string; parentPlatformId: string | null; content: string; publishedAt: string; likeCount: number; source: string };
 export type SettingsHealth = 'healthy' | 'unhealthy' | 'disabled';
@@ -87,7 +87,7 @@ async function apiGet<T>(path: string): Promise<ApiResult<T>> {
 
 export function getAccounts(cursor?: string) { const q = new URLSearchParams({ limit: '50' }); if (cursor) q.set('cursor', cursor); return apiGet<CursorPage<Account>>(`/accounts?${q}`); }
 export function getJobs(cursor?: string) { const q = new URLSearchParams({ limit: '50' }); if (cursor) q.set('cursor', cursor); return apiGet<CursorPage<SyncJob>>(`/jobs?${q}`); }
-export function getNotes(accountId?: string, cursor?: string) { const q = new URLSearchParams({ limit: '50' }); if (accountId) q.set('accountId', accountId); if (cursor) q.set('cursor', cursor); return apiGet<CursorPage<Note>>(`/notes?${q}`); }
+export function getNotes(accountId?: string, cursor?: string, platform?: 'xiaohongshu' | 'douyin') { const q = new URLSearchParams({ limit: '50' }); if (accountId) q.set('accountId', accountId); if (cursor) q.set('cursor', cursor); if (platform) q.set('platform', platform); return apiGet<CursorPage<Note>>(`/notes?${q}`); }
 export function getNote(id: string) { return apiGet<NoteDetail>(`/notes/${encodeURIComponent(id)}`); }
 export function getComments(query: Record<string, string | undefined>) { const q = new URLSearchParams({ limit: '50' }); for (const [key, value] of Object.entries(query)) if (value) q.set(key, value); return apiGet<CursorPage<Comment>>(`/comments?${q}`); }
 

@@ -22,7 +22,11 @@ describe('DouyinPageAdapter', () => {
   it('detects QR login and security verification without bypassing either', async () => {
     await expect(new DouyinPageAdapter(page('https://creator.douyin.com/', ['[data-e2e="qrcode"]'])).detectLoginState()).resolves.toBe('awaiting_scan');
     await expect(new DouyinPageAdapter(page('https://creator.douyin.com/', ['text=安全验证'])).detectLoginState()).resolves.toBe('verification_required');
-    await expect(new DouyinPageAdapter(page('https://creator.douyin.com/creator-micro/home', ['canvas'])).detectLoginState()).resolves.toBe('awaiting_scan');
+    await expect(new DouyinPageAdapter(page('https://creator.douyin.com/creator-micro/home', ['[class*="qrcode"] canvas'])).detectLoginState()).resolves.toBe('awaiting_scan');
+  });
+
+  it('does not mistake an authenticated creator chart canvas for a login QR code', async () => {
+    await expect(new DouyinPageAdapter(page('https://creator.douyin.com/creator-micro/content/manage', ['canvas', 'text=作品管理'])).detectLoginState()).resolves.toBe('authenticated');
   });
 
   it('requires a stable official identity instead of a visible nickname', () => {

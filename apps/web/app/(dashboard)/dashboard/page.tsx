@@ -10,7 +10,7 @@ import { formatMetric, formatReportRange, formatShanghaiDateTime } from '../../.
 import { accountLabel } from '../../../lib/account-label';
 
 const metricLabels: Record<string, string> = {
-  notes: '笔记', likes: '点赞', favorites: '收藏', comments: '评论',
+  notes: '作品', likes: '点赞', favorites: '收藏', comments: '评论',
   impressions: '曝光', views: '访客', new_comments: '新增评论',
 };
 const periodLabels: Record<DashboardPeriod, string> = { daily: '日报', weekly: '周报', monthly: '月报' };
@@ -108,8 +108,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </section> : null}
 
         <section className="panel ranking-panel">
-          <div className="panel-heading"><div><h2>笔记榜单</h2><p>按当前周期的实际指标排序</p></div><Link href="/notes">查看笔记</Link></div>
-          {dashboard.rankedNotes.length ? <div className="ranking-table-wrap"><table className="ranking-table"><thead><tr><th>排名</th><th>笔记</th><th>统一指标</th><th>周期新增</th></tr></thead><tbody>{dashboard.rankedNotes.map((note, index) => <tr key={note.id}><td>{index + 1}</td><td><Link href={`/notes/${note.id}`}>{note.title}</Link></td><td>{metricLabel(note.metricKey)}</td><td>{formatMetric(note.value)}</td></tr>)}</tbody></table></div> : <div className="table-empty"><strong>暂无可排名的笔记</strong><span>本周期有可用指标后，榜单会自动更新。</span></div>}
+          <div className="panel-heading"><div><h2>作品榜单</h2><p>按当前周期的实际指标排序</p></div><Link href="/notes">查看作品</Link></div>
+          {dashboard.rankedNotes.length ? <div className="ranking-table-wrap"><table className="ranking-table"><thead><tr><th>排名</th><th>作品</th><th>统一指标</th><th>周期新增</th></tr></thead><tbody>{dashboard.rankedNotes.map((note, index) => <tr key={note.id}><td>{index + 1}</td><td><Link href={`/notes/${note.id}`}>{note.title}</Link></td><td>{metricLabel(note.metricKey)}</td><td>{formatMetric(note.value)}</td></tr>)}</tbody></table></div> : <div className="table-empty"><strong>暂无可排名的作品</strong><span>本周期有可用指标后，榜单会自动更新。</span></div>}
         </section>
 
         <section className="panel notifications-panel">

@@ -11,7 +11,7 @@ const navigation: NavItem[] = [
   { href: '/dashboard', label: '总览', icon: 'overview' },
   { href: '/accounts', label: '账号', icon: 'account' },
   { href: '/jobs', label: '任务', icon: 'job' },
-  { href: '/notes', label: '笔记', icon: 'note' },
+  { href: '/notes', label: '作品', icon: 'note' },
   { href: '/comments', label: '评论', icon: 'comment' },
   { href: '/reports', label: '报告', icon: 'report' },
   { href: '/notifications', label: '通知', icon: 'notification' },

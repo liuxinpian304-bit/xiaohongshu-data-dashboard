@@ -11,6 +11,12 @@ vi.mock('next/navigation', () => ({ usePathname: () => '/dashboard' }));
 afterEach(() => { cleanup(); document.body.style.overflow = ''; });
 
 describe('AppShell mobile drawer', () => {
+  it('uses platform-neutral content navigation', () => {
+    render(<AppShell><p>内容</p></AppShell>);
+    expect(screen.getByRole('link', { name: '作品' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '笔记' })).not.toBeInTheDocument();
+  });
+
   it('opens as a modal dialog, traps focus, closes with Escape, and restores focus', () => {
     render(<AppShell><p>内容</p></AppShell>);
     const trigger = screen.getByRole('button', { name: '打开导航' });

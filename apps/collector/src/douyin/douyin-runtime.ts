@@ -83,11 +83,12 @@ export function safePayloadShape(input: string, payload: unknown) {
   const data = body.data;
   const keys = Object.keys(body).sort().slice(0, 40);
   const dataKeys = data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data as Record<string, unknown>).sort().slice(0, 40) : [];
+  const arrayCounts = Object.fromEntries(Object.entries(body).filter(([, value]) => Array.isArray(value)).slice(0, 40).map(([key, value]) => [key, (value as unknown[]).length]));
   const list = Object.values(body).find((value) => Array.isArray(value) && value.length && value[0] && typeof value[0] === 'object' && !Array.isArray(value[0])) as JsonObject[] | undefined;
   const first = list?.[0];
   const listItemKeys = first ? Object.keys(first).sort().slice(0, 40) : [];
   const listItemObjectKeys = first ? Object.fromEntries(Object.entries(first).filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value)).slice(0, 20).map(([key, value]) => [key, Object.keys(value as JsonObject).sort().slice(0, 40)])) : {};
-  return { path: url.pathname, keys, dataKeys, ...(first ? { listItemKeys, listItemObjectKeys } : {}) };
+  return { path: url.pathname, keys, dataKeys, ...(Object.keys(arrayCounts).length ? { arrayCounts } : {}), ...(first ? { listItemKeys, listItemObjectKeys } : {}) };
 }
 
 export function safeLaunchError(error: unknown) {

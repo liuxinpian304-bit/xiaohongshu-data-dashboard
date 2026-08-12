@@ -28,9 +28,21 @@ export function collectDouyinEvents(identity: DouyinIdentity, payloads: unknown[
     commentContentIds.add(contentId);
     events.push({ ...base(runId), type: 'comment', comment: { platformId, contentId, parentPlatformId: idOf(comment, ['reply_id', 'reply_to_comment_id', 'parent_id']), authorName: textOf(objectOf(comment.user), ['nickname', 'name']) || textOf(comment, ['user_name', 'author_name']) || '抖音用户', content: textOf(comment, ['text', 'content']) || '', publishedAt: dateOf(comment, ['create_time', 'publish_time', 'published_at']) ?? capturedAt, likeCount: numberOf(comment, ['digg_count', 'like_count']) ?? 0 } });
   }
-  for (const contentId of commentContentIds) events.push({ ...base(runId), type: 'completeness', contentId, scope: 'comments', status: 'complete', reason: 'platform_end' });
+  const completedCommentIds = explicitCommentEnds(payloads);
+  for (const contentId of commentContentIds) events.push({ ...base(runId), type: 'completeness', contentId, scope: 'comments', status: completedCommentIds.has(contentId) ? 'complete' : 'partial', reason: completedCommentIds.has(contentId) ? 'platform_end' : 'page_changed' });
   events.push({ ...base(runId), type: 'completed', completedAt: capturedAt });
   return events;
+}
+
+export class DouyinCursorTracker {
+  private readonly cursors = new Set<string>();
+  private pages = 0;
+  constructor(private readonly maxPages = 1_000) {}
+  accept(cursor: string) {
+    if (this.cursors.has(cursor)) throw new Error('douyin_repeated_cursor');
+    if (this.pages >= this.maxPages) throw new Error('douyin_page_limit');
+    this.cursors.add(cursor); this.pages += 1; return true;
+  }
 }
 
 const metricAliases: Record<'views' | 'likes' | 'comments' | 'favorites' | 'shares', string[]> = {
@@ -39,6 +51,16 @@ const metricAliases: Record<'views' | 'likes' | 'comments' | 'favorites' | 'shar
 
 function findWorks(value: unknown): JsonObject[] { return findArrays(value, new Set(['aweme_list', 'item_list', 'video_list', 'works', 'contents'])); }
 function findComments(value: unknown): JsonObject[] { return findArrays(value, new Set(['comments', 'comment_list'])); }
+function explicitCommentEnds(payloads: unknown[]) {
+  const result = new Set<string>();
+  for (const payload of payloads) visit(payload, (value) => {
+    const comments = Array.isArray(value.comments) ? value.comments.filter(isObject) : Array.isArray(value.comment_list) ? value.comment_list.filter(isObject) : null;
+    if (!comments || value.has_more !== false) return;
+    for (const comment of comments) { const contentId = idOf(comment, ['aweme_id', 'item_id', 'video_id', 'content_id']); if (contentId) result.add(contentId); }
+  });
+  return result;
+}
+function visit(value: unknown, callback: (value: JsonObject) => void, depth = 0) { if (depth > 8 || !value || typeof value !== 'object') return; if (Array.isArray(value)) { for (const item of value.slice(0, 1_000)) visit(item, callback, depth + 1); return; } callback(value as JsonObject); for (const child of Object.values(value as JsonObject).slice(0, 1_000)) visit(child, callback, depth + 1); }
 function findArrays(value: unknown, keys: Set<string>, depth = 0): JsonObject[] {
   if (depth > 8 || !value || typeof value !== 'object') return [];
   if (Array.isArray(value)) return value.flatMap((item) => findArrays(item, keys, depth + 1));

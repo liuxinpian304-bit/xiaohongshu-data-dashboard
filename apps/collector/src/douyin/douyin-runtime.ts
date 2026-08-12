@@ -32,7 +32,11 @@ export function createRuntimeDouyinRegistry(root: string, launchPersistentContex
           const payload = await safeOfficialPayload(response, collectionPayloads ? 5 * 1024 * 1024 : 1024 * 1024);
           if (!payload) return;
           if (parseDouyinIdentity(payload)) identityPayload = payload;
-          if (collectionPayloads && collectionPayloads.length < 1_000) collectionPayloads.push(payload);
+          if (collectionPayloads && collectionPayloads.length < 1_000) {
+            collectionPayloads.push(payload);
+            const shape = safePayloadShape(response.url(), payload);
+            if (shape) console.info('douyin_payload_shape', JSON.stringify(shape));
+          }
         });
         await page.goto('https://creator.douyin.com/creator-micro/home', { waitUntil: 'domcontentloaded', timeout: 30_000 });
         return { close: async () => { page = null; identityPayload = null; await context.close(); } };
@@ -65,4 +69,15 @@ async function safeOfficialPayload(response: Pick<Response, 'url' | 'headers' | 
     if (length > maxBytes) return null;
     return await response.json();
   } catch { return null; }
+}
+
+export function safePayloadShape(input: string, payload: unknown) {
+  let url: URL;
+  try { url = assertOfficialUrl(input); } catch { return null; }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { path: url.pathname, keys: [] as string[] };
+  const body = payload as Record<string, unknown>;
+  const data = body.data;
+  const keys = Object.keys(body).sort().slice(0, 40);
+  const dataKeys = data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data as Record<string, unknown>).sort().slice(0, 40) : [];
+  return { path: url.pathname, keys, dataKeys };
 }

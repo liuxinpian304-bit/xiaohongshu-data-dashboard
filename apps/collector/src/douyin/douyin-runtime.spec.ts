@@ -3,12 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createRuntimeDouyinRegistry } from './douyin-runtime';
+import { createRuntimeDouyinRegistry, safePayloadShape } from './douyin-runtime';
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe('runtime Douyin registry', () => {
+  it('reports only an official URL path and bounded JSON keys for diagnostics', () => {
+    expect(safePayloadShape('https://creator.douyin.com/aweme/v1/list?token=secret', { data: { list: [] }, cursor: 1 })).toEqual({ path: '/aweme/v1/list', keys: ['cursor', 'data'], dataKeys: ['list'] });
+    expect(safePayloadShape('https://evil.test/steal?token=secret', { token: 'secret' })).toBeNull();
+  });
+
   it('launches an isolated official creator page and verifies identity from an official response', async () => {
     const root = await mkdtemp(join(tmpdir(), 'douyin-runtime-')); roots.push(root);
     let responseHandler: ((response: any) => Promise<void>) | undefined;

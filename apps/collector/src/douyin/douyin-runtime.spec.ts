@@ -10,7 +10,7 @@ afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recur
 
 describe('runtime Douyin registry', () => {
   it('reports only an official URL path and bounded JSON keys for diagnostics', () => {
-    expect(safePayloadShape('https://creator.douyin.com/aweme/v1/list?token=secret', { data: { list: [] }, cursor: 1 })).toEqual({ path: '/aweme/v1/list', keys: ['cursor', 'data'], dataKeys: ['list'] });
+    expect(safePayloadShape('https://creator.douyin.com/aweme/v1/list?token=secret', { aweme_list: [{ item: { aweme_id: 'secret' }, status: 1 }], cursor: 1 })).toEqual({ path: '/aweme/v1/list', keys: ['aweme_list', 'cursor'], dataKeys: [], listItemKeys: ['item', 'status'], listItemObjectKeys: { item: ['aweme_id'] } });
     expect(safePayloadShape('https://evil.test/steal?token=secret', { token: 'secret' })).toBeNull();
   });
 

@@ -26,7 +26,10 @@ export function createRuntimeDouyinRegistry(root: string, launchPersistentContex
       store,
       adapter,
       launch: async (profileDirectory) => {
-        const context = await launchPersistentContext(profileDirectory, { headless: false, channel: 'chrome' });
+        const context = await launchPersistentContext(profileDirectory, { headless: false, channel: 'chrome' }).catch((error) => {
+          console.error('douyin_launch_error', JSON.stringify(safeLaunchError(error)));
+          throw error;
+        });
         page = context.pages()[0] ?? await context.newPage();
         page.on('response', async (response) => {
           const payload = await safeOfficialPayload(response, collectionPayloads ? 5 * 1024 * 1024 : 1024 * 1024);
@@ -80,4 +83,14 @@ export function safePayloadShape(input: string, payload: unknown) {
   const keys = Object.keys(body).sort().slice(0, 40);
   const dataKeys = data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data as Record<string, unknown>).sort().slice(0, 40) : [];
   return { path: url.pathname, keys, dataKeys };
+}
+
+export function safeLaunchError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  const code = /profile|singleton|processsingleton|in use/.test(message) ? 'profile_in_use'
+    : /executable|chrome.*not found/.test(message) ? 'chrome_unavailable'
+      : /timeout|timed out/.test(message) ? 'timeout'
+        : /permission|eacces|operation not permitted/.test(message) ? 'permission_denied'
+          : 'unknown';
+  return { name: error instanceof Error ? error.name : 'UnknownError', code };
 }

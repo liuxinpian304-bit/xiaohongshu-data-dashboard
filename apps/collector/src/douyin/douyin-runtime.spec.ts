@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createRuntimeDouyinRegistry, safePayloadShape } from './douyin-runtime';
+import { createRuntimeDouyinRegistry, safeLaunchError, safePayloadShape } from './douyin-runtime';
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -12,6 +12,11 @@ describe('runtime Douyin registry', () => {
   it('reports only an official URL path and bounded JSON keys for diagnostics', () => {
     expect(safePayloadShape('https://creator.douyin.com/aweme/v1/list?token=secret', { data: { list: [] }, cursor: 1 })).toEqual({ path: '/aweme/v1/list', keys: ['cursor', 'data'], dataKeys: ['list'] });
     expect(safePayloadShape('https://evil.test/steal?token=secret', { token: 'secret' })).toBeNull();
+  });
+
+  it('classifies Chrome launch failures without exposing paths or secrets', () => {
+    expect(safeLaunchError(new Error('browserType.launchPersistentContext: Failed to launch chrome because profile /secret/path is in use'))).toEqual({ name: 'Error', code: 'profile_in_use' });
+    expect(safeLaunchError(new Error('token=secret unknown failure'))).toEqual({ name: 'Error', code: 'unknown' });
   });
 
   it('launches an isolated official creator page and verifies identity from an official response', async () => {

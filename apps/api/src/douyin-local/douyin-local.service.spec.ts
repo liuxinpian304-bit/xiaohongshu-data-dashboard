@@ -40,6 +40,7 @@ describe('DouyinLocalService', () => {
 
   it('imports a completed account-scoped collection run', async () => {
     const importer = vi.fn(async () => ({ accountId: 'account-1', contentsChanged: 1, snapshotsChanged: 3, commentsChanged: 1, incompleteContents: 0, sha256: 'hash' }));
+    const recorder = vi.fn(async () => undefined);
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith(`/sessions/${sessionId}`)) return Response.json({ sessionId, state: 'authenticated', changedAt: '2026-08-11T06:00:00.000Z', identity, identityVerifiedAt: '2026-08-11T06:00:00.000Z' });
@@ -49,10 +50,30 @@ describe('DouyinLocalService', () => {
       throw new Error(`unexpected ${url}`);
     });
     const db = { account: { upsert: vi.fn(async () => ({})) } } as any;
-    const service = new DouyinLocalService({ enabled: true, url: 'http://127.0.0.1:43127', token, fetcher, db, importer, sleep: async () => undefined });
+    const service = new DouyinLocalService({ enabled: true, url: 'http://127.0.0.1:43127', token, fetcher, db, importer, recorder, sleep: async () => undefined });
 
     await expect(service.startCollection(sessionId)).resolves.toMatchObject({ runId: 'run-dy-1', state: 'running' });
     await vi.waitFor(() => expect(importer).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ platform: 'douyin', source: 'self-scrape', accountPlatformId: identity.platformId, runId: 'run-dy-1' })));
+    await vi.waitFor(() => expect(recorder).toHaveBeenCalledWith('run-dy-1', expect.objectContaining({ accountId: 'account-1', contentsChanged: 1, commentsChanged: 1 })));
     await expect(service.collectionStatus(sessionId)).resolves.toMatchObject({ state: 'completed' });
+  });
+
+  it('records a completed run and warns when comments are incomplete', async () => {
+    const tx = {
+      syncJob: { upsert: vi.fn(async () => ({})) },
+      notification: { upsert: vi.fn(async () => ({})) },
+      auditLog: { create: vi.fn(async () => ({})) },
+    };
+    const transaction = vi.fn(async (work) => work(tx));
+    const db = { $transaction: transaction } as any;
+    const summary = { accountId: 'account-1', platform: 'douyin' as const, source: 'self-scrape' as const, contentsChanged: 2, snapshotsChanged: 6, commentsChanged: 4, incompleteContents: 1, sha256: 'hash' };
+
+    await DouyinLocalService.recordImport(db, 'run-dy-incomplete', summary);
+
+    expect(tx.syncJob.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ accountId: 'account-1', status: 'succeeded', currentStage: 'complete', payload: expect.objectContaining({ platform: 'douyin', incompleteContents: 1 }) }),
+    }));
+    expect(tx.notification.upsert).toHaveBeenCalledTimes(2);
+    expect(tx.notification.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ type: 'comment_sync_incomplete', title: '抖音评论同步不完整' }) }));
   });
 });

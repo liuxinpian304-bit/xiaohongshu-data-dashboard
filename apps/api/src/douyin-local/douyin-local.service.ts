@@ -6,7 +6,7 @@ export interface DouyinIdentity { platformId: string; douyinAccountId: string; d
 export interface DouyinSessionStatus { sessionId: string; state: DouyinSessionState; changedAt: string; identity?: DouyinIdentity; identityVerifiedAt?: string; qrExpiresAt?: string }
 export interface DouyinCollectionStatus { runId: string | null; state: 'idle' | 'running' | 'completed' | 'failed'; stage: 'account' | 'notes' | 'metrics' | 'comments' | 'replies' | 'writing' | 'reports' | 'complete'; processed: number; total: number; incompleteNotes: number; changedAt: string; errorCode?: 'collector_collection_failed' }
 
-interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; db?: DatabaseClient; importer?: (events: Iterable<unknown>, options: { db: DatabaseClient; platform: 'douyin'; source: 'self-scrape'; accountPlatformId: string; runId: string }) => Promise<PlatformImportSummary | Omit<PlatformImportSummary, 'platform' | 'source'>>; sleep?: (milliseconds: number) => Promise<void> }
+interface Configuration { enabled: boolean; url: string; token: string; fetcher?: typeof fetch; db?: DatabaseClient; importer?: (events: Iterable<unknown>, options: { db: DatabaseClient; platform: 'douyin'; source: 'self-scrape'; accountPlatformId: string; runId: string }) => Promise<PlatformImportSummary | Omit<PlatformImportSummary, 'platform' | 'source'>>; recorder?: (runId: string, summary: PlatformImportSummary) => Promise<void>; sleep?: (milliseconds: number) => Promise<void> }
 
 @Injectable()
 export class DouyinLocalService {
@@ -19,6 +19,10 @@ export class DouyinLocalService {
       url: process.env.LOCAL_XHS_COLLECTOR_URL ?? 'http://127.0.0.1:43127',
       token: process.env.LOCAL_XHS_COLLECTOR_TOKEN ?? '',
     };
+  }
+
+  static recordImport(db: DatabaseClient, runId: string, summary: PlatformImportSummary) {
+    return recordImport(db, runId, summary);
   }
 
   async create() { return this.requestStatus('/v3/douyin/sessions', 'POST'); }
@@ -90,7 +94,9 @@ export class DouyinLocalService {
       const accountPlatformId = account?.account?.platformId;
       if (typeof accountPlatformId !== 'string' || !accountPlatformId.startsWith('douyin:')) throw new Error('douyin_identity_unavailable');
       const importer = this.configuration.importer ?? importPlatformCollection;
-      await importer(envelope.events, { db: this.configuration.db ?? prisma, platform: 'douyin', source: 'self-scrape', accountPlatformId, runId });
+      const imported = await importer(envelope.events, { db: this.configuration.db ?? prisma, platform: 'douyin', source: 'self-scrape', accountPlatformId, runId });
+      const summary: PlatformImportSummary = { ...imported, platform: 'douyin', source: 'self-scrape' };
+      await (this.configuration.recorder ?? ((id, value) => recordImport(this.configuration.db ?? prisma, id, value)))(runId, summary);
       this.imports.set(runId, 'completed');
     } catch { this.imports.set(runId, 'failed'); }
   }
@@ -165,3 +171,16 @@ function date(value: unknown) { return typeof value === 'string' && Number.isFin
 function https(value: unknown) { if (typeof value !== 'string' || value.length > 2048) return false; try { return new URL(value).protocol === 'https:'; } catch { return false; } }
 function invalid(): never { throw new ServiceUnavailableException('invalid_douyin_collector_response'); }
 function delay(milliseconds: number) { return new Promise<void>((resolve) => setTimeout(resolve, milliseconds)); }
+
+async function recordImport(db: DatabaseClient, runId: string, summary: PlatformImportSummary) {
+  const now = new Date();
+  const payload = { platform: 'douyin', source: 'self-scrape', contentsChanged: summary.contentsChanged, snapshotsChanged: summary.snapshotsChanged, commentsChanged: summary.commentsChanged, incompleteContents: summary.incompleteContents, sha256: summary.sha256 };
+  await db.$transaction(async (tx) => {
+    await tx.syncJob.upsert({ where: { externalJobId: runId }, create: { externalJobId: runId, accountId: summary.accountId, status: 'succeeded', currentStage: 'complete', startedAt: now, completedAt: now, payload }, update: { status: 'succeeded', currentStage: 'complete', completedAt: now, error: null, payload } });
+    await tx.notification.upsert({ where: { eventId: `douyin-sync:${runId}` }, create: { eventId: `douyin-sync:${runId}`, accountId: summary.accountId, type: 'sync_completed', title: '抖音数据同步完成', body: `已同步 ${summary.contentsChanged} 条作品变更、${summary.commentsChanged} 条评论变更`, link: `/dashboard?accountId=${encodeURIComponent(summary.accountId)}` }, update: {} });
+    if (summary.incompleteContents > 0) {
+      await tx.notification.upsert({ where: { eventId: `douyin-comments-incomplete:${runId}` }, create: { eventId: `douyin-comments-incomplete:${runId}`, accountId: summary.accountId, type: 'comment_sync_incomplete', title: '抖音评论同步不完整', body: `${summary.incompleteContents} 条作品的评论或回复尚未确认全部同步，请稍后重试`, link: `/comments?accountId=${encodeURIComponent(summary.accountId)}&platform=douyin` }, update: {} });
+    }
+    await tx.auditLog.create({ data: { actor: 'douyin-local-collector', action: 'douyin.sync_succeeded', entityType: 'DouyinCollectionRun', entityId: runId, details: payload } });
+  });
+}

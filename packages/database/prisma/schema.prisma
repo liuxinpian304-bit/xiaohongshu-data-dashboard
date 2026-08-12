@@ -162,6 +162,7 @@ model Comment {
   connectorType    String
   platformId       String
   parentPlatformId String?
+  authorName       String?
   content          String
   publishedAt      DateTime @db.Timestamptz(3)
   firstSeenAt      DateTime @default(now()) @db.Timestamptz(3)

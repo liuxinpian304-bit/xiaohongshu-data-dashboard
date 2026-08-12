@@ -7,7 +7,7 @@ describe('commentWhere', () => {
     expect(commentWhere({ platform: 'xiaohongshu' })).toEqual({ platform: 'xiaohongshu' });
   });
   it('exports platform, source, remote ids and capture time', () => {
-    expect(commentCsvHeader).toContain('platform,source,platformId,parentPlatformId');
-    expect(commentCsvRow({ id:'1',noteId:'n1',platform:'douyin',source:'self-scrape',platformId:'c1',parentPlatformId:null,content:'好',publishedAt:new Date('2026-08-12T00:00:00Z'),likeCount:2,lastSeenAt:new Date('2026-08-12T01:00:00Z') })).toContain('"douyin","self-scrape","c1"');
+    expect(commentCsvHeader).toContain('platform,source,platformId,parentPlatformId,authorName');
+    expect(commentCsvRow({ id:'1',noteId:'n1',platform:'douyin',source:'self-scrape',platformId:'c1',parentPlatformId:null,authorName:'甲',content:'好',publishedAt:new Date('2026-08-12T00:00:00Z'),likeCount:2,lastSeenAt:new Date('2026-08-12T01:00:00Z') })).toContain('"douyin","self-scrape","c1","","甲"');
   });
 });

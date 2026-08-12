@@ -22,7 +22,7 @@ export type NoteMetric = { key: string; displayName: string; availability: DataA
 export type CommentSyncCompleteness = { status: string; error: string | null; updatedAt: string } | null;
 export type Note = { id: string; accountId: string; platform: 'xiaohongshu' | 'douyin'; connectorType: string; platformId: string; title: string; publishedAt: string; lastSeenAt: string; account: { id: string; platform: 'xiaohongshu' | 'douyin'; displayName: string | null; platformId: string }; metrics: NoteMetric[]; commentCompleteness: CommentSyncCompleteness };
 export type NoteDetail = Note;
-export type Comment = { id: string; noteId: string | null; connectorType: string; platformId: string; parentPlatformId: string | null; content: string; publishedAt: string; likeCount: number; source: string };
+export type Comment = { id: string; noteId: string | null; connectorType: string; platformId: string; parentPlatformId: string | null; authorName?: string | null; content: string; publishedAt: string; likeCount: number; source: string };
 export type SettingsHealth = 'healthy' | 'unhealthy' | 'disabled';
 export type SettingsStatus = { api: SettingsHealth; database: SettingsHealth; collector: SettingsHealth; account: { displayName: string; xhsAccountId: string | null; platformId: string; avatarUrl: string | null; loginState: 'authenticated' } | null; version: string; timezone: 'Asia/Shanghai' };
 

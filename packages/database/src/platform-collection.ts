@@ -98,9 +98,9 @@ async function importTransaction(events: PlatformCollectionEventV2[], options: O
     const note = await db.note.findFirstOrThrow({ where: { platform, platformId: event.comment.contentId } });
     if (note.accountId !== account.id) throw new Error('collection_comment_account_mismatch');
     const old = await db.comment.findFirst({ where: { platform, platformId: event.comment.platformId } });
-    const changed = !old || old.noteId !== note.id || old.parentPlatformId !== event.comment.parentPlatformId || old.content !== event.comment.content || old.publishedAt.toISOString() !== event.comment.publishedAt || old.likeCount !== event.comment.likeCount;
-    if (old) await db.comment.update({ where: { id: old.id }, data: { noteId: note.id, connectorType, parentPlatformId: event.comment.parentPlatformId, content: event.comment.content, publishedAt: new Date(event.comment.publishedAt), likeCount: event.comment.likeCount, lastSeenAt: new Date(), source } });
-    else await db.comment.create({ data: { noteId: note.id, platform, connectorType, platformId: event.comment.platformId, parentPlatformId: event.comment.parentPlatformId, content: event.comment.content, publishedAt: new Date(event.comment.publishedAt), likeCount: event.comment.likeCount, source } });
+    const changed = !old || old.noteId !== note.id || old.parentPlatformId !== event.comment.parentPlatformId || old.authorName !== event.comment.authorName || old.content !== event.comment.content || old.publishedAt.toISOString() !== event.comment.publishedAt || old.likeCount !== event.comment.likeCount;
+    if (old) await db.comment.update({ where: { id: old.id }, data: { noteId: note.id, connectorType, parentPlatformId: event.comment.parentPlatformId, authorName: event.comment.authorName, content: event.comment.content, publishedAt: new Date(event.comment.publishedAt), likeCount: event.comment.likeCount, lastSeenAt: new Date(), source } });
+    else await db.comment.create({ data: { noteId: note.id, platform, connectorType, platformId: event.comment.platformId, parentPlatformId: event.comment.parentPlatformId, authorName: event.comment.authorName, content: event.comment.content, publishedAt: new Date(event.comment.publishedAt), likeCount: event.comment.likeCount, source } });
     commentsChanged += changed ? 1 : 0;
   }
 

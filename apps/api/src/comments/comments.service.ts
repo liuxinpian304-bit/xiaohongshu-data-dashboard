@@ -11,8 +11,8 @@ export function commentWhere(f: CommentFilter) { const accountIds = f.accountId 
 type ExportLimits = { maxRows: number; maxBytes: number; chunkSize: number };
 const defaults: ExportLimits = { maxRows: 100_000, maxBytes: 50 * 1024 * 1024, chunkSize: 500 };
 const csvCell = (value: unknown) => { let text = String(value ?? ''); if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"', '""')}"`; };
-export const commentCsvHeader = 'id,noteId,platform,source,platformId,parentPlatformId,content,publishedAt,likeCount,capturedAt\r\n';
-export const commentCsvRow = (row: { id: string; noteId: string | null; platform: string; source: string; platformId: string; parentPlatformId: string | null; content: string; publishedAt: Date; likeCount: number; lastSeenAt: Date }) => [row.id,row.noteId,row.platform,row.source,row.platformId,row.parentPlatformId,row.content,row.publishedAt.toISOString(),row.likeCount,row.lastSeenAt.toISOString()].map(csvCell).join(',') + '\r\n';
+export const commentCsvHeader = 'id,noteId,platform,source,platformId,parentPlatformId,authorName,content,publishedAt,likeCount,capturedAt\r\n';
+export const commentCsvRow = (row: { id: string; noteId: string | null; platform: string; source: string; platformId: string; parentPlatformId: string | null; authorName: string | null; content: string; publishedAt: Date; likeCount: number; lastSeenAt: Date }) => [row.id,row.noteId,row.platform,row.source,row.platformId,row.parentPlatformId,row.authorName,row.content,row.publishedAt.toISOString(),row.likeCount,row.lastSeenAt.toISOString()].map(csvCell).join(',') + '\r\n';
 
 @Injectable()
 export class CommentsService {

@@ -41,6 +41,7 @@ describe('importPlatformCollection', () => {
     expect(replay).toMatchObject({ contentsChanged: 0, snapshotsChanged: 0, commentsChanged: 0, incompleteContents: 0 });
     expect(await prisma.metricDefinition.count({ where: { platform: 'douyin', source: 'xiaohuohua' } })).toBe(5);
     expect(await prisma.comment.count({ where: { platform: 'douyin' } })).toBe(2);
+    expect(await prisma.comment.findFirstOrThrow({ where: { platform: 'douyin', platformId: 'comment-1' } })).toMatchObject({ authorName: '甲' });
     expect(await prisma.commentSyncCompleteness.findFirstOrThrow({ where: { connectorType: 'xiaohuohua', notePlatformId: 'content-1' } })).toMatchObject({ status: 'page_complete', error: null });
   });
 

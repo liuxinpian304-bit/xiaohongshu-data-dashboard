@@ -1,1 +1,1 @@
-ALTER TABLE "Comment" ADD COLUMN "authorName" TEXT;
+ALTER TABLE "Comment" ADD COLUMN IF NOT EXISTS "authorName" TEXT;

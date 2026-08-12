@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { collectDouyinEvents, DouyinCursorTracker } from './douyin-collection';
+import { collectDouyinEvents, DouyinCursorTracker, collectionWindow } from './douyin-collection';
 
 describe('collectDouyinEvents', () => {
   it('maps creator works, metrics and comments without inventing missing views', () => {
@@ -44,5 +44,24 @@ describe('collectDouyinEvents', () => {
       'run-2', '2026-08-11T08:00:00.000Z',
     );
     expect(events).toContainEqual(expect.objectContaining({ type: 'metric', metric: expect.objectContaining({ key: 'views', value: 0, availability: 'zero' }) }));
+  });
+
+  it('uses the Shanghai current month normally and only permits previous month finalization on day one', () => {
+    expect(collectionWindow(new Date('2026-08-12T02:00:00.000Z'), 'daily')).toEqual({ from: '2026-08-01T00:00:00+08:00', to: '2026-08-12T23:59:59.999+08:00' });
+    expect(collectionWindow(new Date('2026-08-01T02:00:00.000Z'), 'previous_month_final')).toEqual({ from: '2026-07-01T00:00:00+08:00', to: '2026-07-31T23:59:59.999+08:00' });
+    expect(() => collectionWindow(new Date('2026-08-12T02:00:00.000Z'), 'previous_month_final')).toThrow('douyin_previous_month_not_allowed');
+  });
+
+  it('excludes scheduled, unpublished and previous-month works from a daily run', () => {
+    const events = collectDouyinEvents(
+      { platformId: 'douyin:1', douyinAccountId: 'one', displayName: 'One', avatarUrl: null },
+      [{ aweme_list: [
+        { aweme_id: 'august', desc: '本月', create_time: 1785513600, status: 'published' },
+        { aweme_id: 'july', desc: '上月', create_time: 1782835200, status: 'published' },
+        { aweme_id: 'scheduled', desc: '定时', create_time: 1785513600, status: 'scheduled' },
+      ] }], 'run-window', '2026-08-12T02:00:00.000Z', { mode: 'daily' },
+    );
+    const ids = events.filter((event) => event.type === 'content').map((event) => event.content.platformId);
+    expect(ids).toEqual(['august']);
   });
 });

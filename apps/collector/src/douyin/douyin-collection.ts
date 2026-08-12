@@ -5,9 +5,11 @@ import type { DouyinIdentity } from './douyin-types';
 type JsonObject = Record<string, unknown>;
 const base = (runId: string) => ({ version: 2 as const, platform: 'douyin' as const, source: 'self-scrape' as const, runId });
 
-export function collectDouyinEvents(identity: DouyinIdentity, payloads: unknown[], runId: string, capturedAt: string): PlatformCollectionEventV2[] {
+export type DouyinCollectionMode = 'daily' | 'previous_month_final';
+export function collectDouyinEvents(identity: DouyinIdentity, payloads: unknown[], runId: string, capturedAt: string, options: { mode?: DouyinCollectionMode } = {}): PlatformCollectionEventV2[] {
   const events: PlatformCollectionEventV2[] = [{ ...base(runId), type: 'account', account: { platformId: identity.platformId, displayName: identity.displayName, avatarUrl: identity.avatarUrl } }];
-  const works = uniqueById(payloads.flatMap(findWorks));
+  const window = collectionWindow(new Date(capturedAt), options.mode ?? 'daily');
+  const works = uniqueById(payloads.flatMap(findWorks)).filter((work) => publishedInWindow(work, window));
   const comments = payloads.flatMap(findComments);
 
   for (const work of works) {
@@ -32,6 +34,17 @@ export function collectDouyinEvents(identity: DouyinIdentity, payloads: unknown[
   for (const contentId of commentContentIds) events.push({ ...base(runId), type: 'completeness', contentId, scope: 'comments', status: completedCommentIds.has(contentId) ? 'complete' : 'partial', reason: completedCommentIds.has(contentId) ? 'platform_end' : 'page_changed' });
   events.push({ ...base(runId), type: 'completed', completedAt: capturedAt });
   return events;
+}
+
+export function collectionWindow(now: Date, mode: DouyinCollectionMode) {
+  const parts = shanghaiParts(now); const day = Number(parts.day); const year = Number(parts.year); const month = Number(parts.month);
+  if (mode === 'previous_month_final') {
+    if (day !== 1) throw new Error('douyin_previous_month_not_allowed');
+    const previous = month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+    const lastDay = new Date(Date.UTC(previous.year, previous.month, 0)).getUTCDate();
+    return { from: localBoundary(previous.year, previous.month, 1, false), to: localBoundary(previous.year, previous.month, lastDay, true) };
+  }
+  return { from: localBoundary(year, month, 1, false), to: localBoundary(year, month, day, true) };
 }
 
 export class DouyinCursorTracker {
@@ -78,3 +91,11 @@ function idOf(value: JsonObject, aliases: string[]) { for (const key of aliases)
 function textOf(value: JsonObject, aliases: string[]) { for (const key of aliases) { const item = value[key]; if (typeof item === 'string' && item.trim()) return item.trim().slice(0, 500); } return ''; }
 function numberOf(value: JsonObject, aliases: string[]) { for (const key of aliases) { const item = value[key]; if (typeof item === 'number' && Number.isSafeInteger(item) && item >= 0) return item; if (typeof item === 'string' && /^\d+$/.test(item)) { const parsed = Number(item); if (Number.isSafeInteger(parsed)) return parsed; } } return undefined; }
 function dateOf(value: JsonObject, aliases: string[]) { for (const key of aliases) { const item = value[key]; if (typeof item === 'number' && item > 0) return new Date(item < 10_000_000_000 ? item * 1000 : item).toISOString(); if (typeof item === 'string' && Number.isFinite(Date.parse(item))) return new Date(item).toISOString(); } return null; }
+function publishedInWindow(work: JsonObject, window: { from: string; to: string }) {
+  const status = textOf(work, ['status', 'publish_status', 'state']).toLowerCase();
+  if (['scheduled', 'draft', 'unpublished', 'reviewing'].includes(status) || work.is_published === false) return false;
+  const publishedAt = dateOf(work, ['create_time', 'publish_time', 'published_at']);
+  return !!publishedAt && Date.parse(publishedAt) >= Date.parse(window.from) && Date.parse(publishedAt) <= Date.parse(window.to);
+}
+function shanghaiParts(date: Date) { return Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value])) as { year: string; month: string; day: string }; }
+function localBoundary(year: number, month: number, day: number, end: boolean) { return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${end ? '23:59:59.999' : '00:00:00'}+08:00`; }

@@ -156,9 +156,11 @@ button { color: inherit; }
   .app-shell { padding-left: 190px; }
   .sidebar { width: 190px; }
   .dashboard-heading { grid-template-columns: 1fr auto; }
-  .report-meta { width: 100%; grid-column: 1 / -1; justify-self: stretch; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .report-meta div { min-width: 0; }
-  .report-meta dd { white-space: normal; overflow-wrap: anywhere; }
+  .report-meta { width: 100%; grid-column: 1 / -1; justify-self: stretch; display: grid; grid-template-columns: 1fr; border-block: 1px solid var(--border); }
+  .report-meta div { min-width: 0; min-height: 44px; display: grid; grid-template-columns: minmax(86px, auto) minmax(0, 1fr); align-items: center; gap: 16px; padding: 8px 0; border: 0; border-bottom: 1px solid var(--border); }
+  .report-meta div:last-child { border-bottom: 0; }
+  .report-meta dt { margin: 0; }
+  .report-meta dd { margin: 0; text-align: right; white-space: normal; overflow-wrap: anywhere; }
   .metric-rail { grid-template-columns: repeat(4, 1fr); }
   .metric-card { border-bottom: 1px solid var(--border); }
   .metric-card:nth-child(4n) { border-right: 0; }
@@ -195,10 +197,9 @@ button { color: inherit; }
   .dashboard-heading p { max-width: 530px; }
   .period-tabs { width: 100%; order: 2; }
   .period-tabs a { flex: 1; }
-  .report-meta { width: 100%; order: 3; display: grid; grid-template-columns: 1fr 1fr; }
-  .report-meta div { min-width: 0; padding: 0 14px 0 0; border-left: 0; border-right: 1px solid var(--border); }
-  .report-meta div:last-child { padding-left: 14px; border-right: 0; }
-  .report-meta dd { white-space: normal; }
+  .report-meta { width: 100%; order: 3; display: grid; grid-template-columns: 1fr; }
+  .report-meta div { min-width: 0; grid-template-columns: minmax(72px, auto) minmax(0, 1fr); gap: 12px; }
+  .report-meta dd { margin: 0; text-align: right; white-space: normal; overflow-wrap: anywhere; }
   .metric-rail { display: flex; min-height: 132px; margin-inline: -16px; padding: 0 16px 7px; gap: 10px; overflow-x: auto; border-inline: 0; border-radius: 0; scroll-snap-type: x mandatory; }
   .metric-card { min-width: 148px; border: 1px solid var(--border) !important; border-radius: 8px; scroll-snap-align: start; }
   .daily-section-heading { padding: 17px 16px 12px; }

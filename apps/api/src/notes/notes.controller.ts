@@ -11,7 +11,7 @@ import { NotesService } from './notes.service';
 @Controller('notes') @UseGuards(AuthGuard)
 export class NotesController {
   constructor(@Inject(NotesService) private readonly notes: NotesService, @Inject(NoteExportService) private readonly exporter: NoteExportService) {}
-  @Get() list(@Query(dtoPipe(AccountQueryDto)) query: AccountQueryDto) { const p = pagination(query); return this.notes.list(query.accountId ? uuid(query.accountId, 'accountId') : undefined, p.cursor, p.limit); }
+  @Get() list(@Query(dtoPipe(AccountQueryDto)) query: AccountQueryDto) { const p = pagination(query); return this.notes.list(query.accountId ? uuid(query.accountId, 'accountId') : undefined, p.cursor, p.limit, query.platform); }
   @Get('export.zip') async export(@Query(dtoPipe(AccountQueryDto)) query: AccountQueryDto, @Res() response: Response) {
     const zip = await this.exporter.export(query.accountId ? uuid(query.accountId, 'accountId') : undefined);
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());

@@ -35,15 +35,16 @@ const snapshotInclude = {
   orderBy: [{ capturedAt: 'desc' as const }, { observedAt: 'desc' as const }, { revision: 'desc' as const }],
   include: { metricDefinition: true },
 };
+export function noteWhere(input: { platform?: 'xiaohongshu' | 'douyin'; accountId?: string; cursor?: string }) { return { ...(input.platform ? { platform: input.platform } : {}), ...(input.accountId ? { accountId: input.accountId } : {}), ...(input.cursor ? { id: { gt: input.cursor } } : {}) }; }
 
 @Injectable()
 export class NotesService {
-  async list(accountId: string | undefined, cursor: string | undefined, limit: number) {
+  async list(accountId: string | undefined, cursor: string | undefined, limit: number, platform?: 'xiaohongshu' | 'douyin') {
     const notes = await prisma.note.findMany({
-      where: { ...(accountId ? { accountId } : {}), ...(cursor ? { id: { gt: cursor } } : {}) },
+      where: noteWhere({ platform, accountId, cursor }),
       orderBy: { id: 'asc' },
       take: limit + 1,
-      include: { account: { select: { id: true, displayName: true, platformId: true } }, snapshots: snapshotInclude },
+      include: { account: { select: { id: true, platform: true, displayName: true, platformId: true } }, snapshots: snapshotInclude },
     });
     const completeness = notes.length ? await prisma.commentSyncCompleteness.findMany({
       where: { OR: notes.map((note) => ({ connectorType: note.connectorType, accountId: note.accountId, notePlatformId: note.platformId })) },
@@ -60,7 +61,7 @@ export class NotesService {
   }
 
   async detail(id: string) {
-    const note = await prisma.note.findUnique({ where: { id }, include: { account: { select: { id: true, displayName: true, platformId: true } }, snapshots: snapshotInclude } });
+    const note = await prisma.note.findUnique({ where: { id }, include: { account: { select: { id: true, platform: true, displayName: true, platformId: true } }, snapshots: snapshotInclude } });
     if (!note) throw new NotFoundException('note not found');
     const completeness = await prisma.commentSyncCompleteness.findUnique({ where: { connectorType_accountId_notePlatformId: { connectorType: note.connectorType, accountId: note.accountId, notePlatformId: note.platformId } } });
     const { snapshots, ...base } = note;

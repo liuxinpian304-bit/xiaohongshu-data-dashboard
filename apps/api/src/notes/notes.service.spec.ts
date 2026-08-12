@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { projectNoteMetrics } from './notes.service';
+import { noteWhere, projectNoteMetrics } from './notes.service';
 
 describe('projectNoteMetrics', () => {
   it('keeps the latest effective snapshot per metric and preserves unknown values', () => {
@@ -13,6 +13,13 @@ describe('projectNoteMetrics', () => {
       expect.objectContaining({ key: 'likes', value: '12', availability: 'available' }),
       expect.objectContaining({ key: 'comments', value: null, availability: 'not_provided' }),
     ]);
+  });
+});
+
+describe('noteWhere', () => {
+  it('scopes content by platform without dropping account and cursor filters', () => {
+    expect(noteWhere({ platform: 'xiaohongshu', accountId: 'account-1', cursor: 'note-1' })).toEqual({ platform: 'xiaohongshu', accountId: 'account-1', id: { gt: 'note-1' } });
+    expect(noteWhere({ platform: 'douyin' })).toEqual({ platform: 'douyin' });
   });
 });
 

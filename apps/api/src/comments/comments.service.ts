@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { page } from '../common/pagination.dto';
 
-export type CommentFilter = { accountId?: string; accountIds?: string[]; noteId?: string; from?: Date; to?: Date; keyword?: string; newOnly?: boolean };
+export type CommentFilter = { platform?: 'xiaohongshu' | 'douyin'; accountId?: string; accountIds?: string[]; noteId?: string; from?: Date; to?: Date; keyword?: string; newOnly?: boolean };
+export function commentWhere(f: CommentFilter) { const accountIds = f.accountId ? [f.accountId] : f.accountIds; return { ...(f.platform ? { platform: f.platform } : {}), ...(f.noteId ? { noteId: f.noteId } : {}), ...(accountIds ? { note: { accountId: { in: accountIds } } } : {}), ...(f.from || f.to ? { publishedAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } } : {}), ...(f.keyword ? { content: { contains: f.keyword, mode: 'insensitive' as const } } : {}), ...(f.newOnly ? { firstSeenAt: { gte: new Date(Date.now() - 86_400_000) } } : {}) }; }
 type ExportLimits = { maxRows: number; maxBytes: number; chunkSize: number };
 const defaults: ExportLimits = { maxRows: 100_000, maxBytes: 50 * 1024 * 1024, chunkSize: 500 };
 const csvCell = (value: unknown) => { let text = String(value ?? ''); if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"', '""')}"`; };
@@ -15,7 +16,7 @@ const csvRow = (row: { id: string; noteId: string | null; content: string; publi
 @Injectable()
 export class CommentsService {
   constructor(private readonly limits: ExportLimits = defaults) {}
-  private where(f: CommentFilter) { const accountIds = f.accountId ? [f.accountId] : f.accountIds; return { ...(f.noteId ? { noteId: f.noteId } : {}), ...(accountIds ? { note: { accountId: { in: accountIds } } } : {}), ...(f.from || f.to ? { publishedAt: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } } : {}), ...(f.keyword ? { content: { contains: f.keyword, mode: 'insensitive' as const } } : {}), ...(f.newOnly ? { firstSeenAt: { gte: new Date(Date.now() - 86_400_000) } } : {}) }; }
+  private where(f: CommentFilter) { return commentWhere(f); }
   async ensureScope(f: CommentFilter) { const ids = f.accountId ? [f.accountId] : f.accountIds; if (ids && await prisma.account.count({ where: { id: { in: ids } } }) !== new Set(ids).size) throw new NotFoundException('managed account not found'); }
   async list(f: CommentFilter, cursor: string | undefined, limit: number) { await this.ensureScope(f); return page(await prisma.comment.findMany({ where: { ...this.where(f), ...(cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: limit + 1 }), limit); }
   async export(f: CommentFilter) {

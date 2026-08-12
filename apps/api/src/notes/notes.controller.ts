@@ -13,9 +13,9 @@ export class NotesController {
   constructor(@Inject(NotesService) private readonly notes: NotesService, @Inject(NoteExportService) private readonly exporter: NoteExportService) {}
   @Get() list(@Query(dtoPipe(AccountQueryDto)) query: AccountQueryDto) { const p = pagination(query); return this.notes.list(query.accountId ? uuid(query.accountId, 'accountId') : undefined, p.cursor, p.limit, query.platform); }
   @Get('export.zip') async export(@Query(dtoPipe(AccountQueryDto)) query: AccountQueryDto, @Res() response: Response) {
-    const zip = await this.exporter.export(query.accountId ? uuid(query.accountId, 'accountId') : undefined);
+    const zip = await this.exporter.export(query.accountId ? uuid(query.accountId, 'accountId') : undefined, query.platform);
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
-    response.type('application/zip'); response.setHeader('Content-Disposition', `attachment; filename="xiaohongshu-data-${date}.zip"`); response.send(zip);
+    response.type('application/zip'); response.setHeader('Content-Disposition', `attachment; filename="platform-data-${date}.zip"`); response.send(zip);
   }
   @Get(':id') detail(@Param('id', new ParseUUIDPipe()) id: string) { return this.notes.detail(id); }
 }

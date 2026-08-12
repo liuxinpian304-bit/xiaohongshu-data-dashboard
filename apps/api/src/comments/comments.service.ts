@@ -11,7 +11,8 @@ export function commentWhere(f: CommentFilter) { const accountIds = f.accountId 
 type ExportLimits = { maxRows: number; maxBytes: number; chunkSize: number };
 const defaults: ExportLimits = { maxRows: 100_000, maxBytes: 50 * 1024 * 1024, chunkSize: 500 };
 const csvCell = (value: unknown) => { let text = String(value ?? ''); if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`; return `"${text.replaceAll('"', '""')}"`; };
-const csvRow = (row: { id: string; noteId: string | null; content: string; publishedAt: Date; likeCount: number }) => [row.id, row.noteId, row.content, row.publishedAt.toISOString(), row.likeCount].map(csvCell).join(',') + '\r\n';
+export const commentCsvHeader = 'id,noteId,platform,source,platformId,parentPlatformId,content,publishedAt,likeCount,capturedAt\r\n';
+export const commentCsvRow = (row: { id: string; noteId: string | null; platform: string; source: string; platformId: string; parentPlatformId: string | null; content: string; publishedAt: Date; likeCount: number; lastSeenAt: Date }) => [row.id,row.noteId,row.platform,row.source,row.platformId,row.parentPlatformId,row.content,row.publishedAt.toISOString(),row.likeCount,row.lastSeenAt.toISOString()].map(csvCell).join(',') + '\r\n';
 
 @Injectable()
 export class CommentsService {
@@ -25,13 +26,13 @@ export class CommentsService {
     let snapshot: { rowCount: number; actualBytes: number; oversized: boolean };
     try {
       snapshot = await prisma.$transaction(async (tx) => {
-        const header = 'id,noteId,content,publishedAt,likeCount\r\n'; let actualBytes = Buffer.byteLength(header); let rowCount = 0; let cursor: string | undefined; let oversized = actualBytes > this.limits.maxBytes;
+        const header = commentCsvHeader; let actualBytes = Buffer.byteLength(header); let rowCount = 0; let cursor: string | undefined; let oversized = actualBytes > this.limits.maxBytes;
         if (!oversized) await file.write(header);
         while (!oversized && rowCount <= this.limits.maxRows) {
           const rows = await tx.comment.findMany({ where: { ...this.where(f), ...(cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: this.limits.chunkSize });
           if (!rows.length) break;
           for (const row of rows) {
-            rowCount++; cursor = row.id; const encoded = csvRow(row); const encodedBytes = Buffer.byteLength(encoded, 'utf8');
+            rowCount++; cursor = row.id; const encoded = commentCsvRow(row); const encodedBytes = Buffer.byteLength(encoded, 'utf8');
             if (rowCount > this.limits.maxRows || actualBytes + encodedBytes > this.limits.maxBytes) { oversized = true; break; }
             await file.write(encoded); actualBytes += encodedBytes;
           }

@@ -156,7 +156,9 @@ button { color: inherit; }
   .app-shell { padding-left: 190px; }
   .sidebar { width: 190px; }
   .dashboard-heading { grid-template-columns: 1fr auto; }
-  .report-meta { grid-column: 1 / -1; justify-self: end; }
+  .report-meta { width: 100%; grid-column: 1 / -1; justify-self: stretch; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .report-meta div { min-width: 0; }
+  .report-meta dd { white-space: normal; overflow-wrap: anywhere; }
   .metric-rail { grid-template-columns: repeat(4, 1fr); }
   .metric-card { border-bottom: 1px solid var(--border); }
   .metric-card:nth-child(4n) { border-right: 0; }
